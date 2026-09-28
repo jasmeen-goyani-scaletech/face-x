@@ -115,7 +115,7 @@ function RoleSelection() {
           <RoleCard
             href="/register/staff"
             icon={<ShieldIcon size={20} />}
-            title="Staff / Club Admin"
+            title="Staff"
             desc="Team managers, athletic trainers, equipment managers, and safety officers."
           />
         </div>

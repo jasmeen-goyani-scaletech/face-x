@@ -82,7 +82,7 @@ export default function StaffRegisterPage() {
 
         {step === 'basic' && (
           <Card>
-            <h2 className="text-xl mb-1">Staff / Club Admin Registration</h2>
+            <h2 className="text-xl mb-1">Staff Registration</h2>
             <p className="text-ink-soft mb-5">Personal details and administrative role.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
               <TextField id="firstName" label="First Name" value={reg.basic.firstName} error={errors.firstName} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, firstName: e.target.value } })} />
