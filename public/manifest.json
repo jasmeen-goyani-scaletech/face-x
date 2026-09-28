@@ -1,0 +1,17 @@
+{
+  "name": "Face-X — Youth Football Registration",
+  "short_name": "Face-X",
+  "description": "Player, coach, and staff registration and event-day check-in for California youth football.",
+  "start_url": "/register",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5f6f2",
+  "theme_color": "#1f6f4d",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

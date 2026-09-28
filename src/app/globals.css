@@ -1,0 +1,146 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --paper: #f5f6f2;
+  --surface: #ffffff;
+  --surface-2: #edf0ea;
+  --ink: #16202b;
+  --ink-soft: #57626b;
+  --ink-faint: #8a939a;
+  --line: #dce1d8;
+  --line-strong: #c3cac0;
+
+  --accent: #1f6f4d;
+  --accent-ink: #ffffff;
+  --accent-soft: #e3f0e8;
+  --accent-strong: #16543a;
+
+  --gold: #b9791a;
+  --gold-soft: #faedd2;
+
+  --success: #1f7a4d;
+  --success-soft: #e2f2e8;
+  --warning: #a1660a;
+  --warning-soft: #fbeed6;
+  --danger: #b23a2e;
+  --danger-soft: #f8e2df;
+  --info: #2b6ca3;
+  --info-soft: #e3edf5;
+
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-body: 'Public Sans', -apple-system, 'Segoe UI', sans-serif;
+
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --paper: #10161a;
+    --surface: #171f24;
+    --surface-2: #1d262b;
+    --ink: #edf1ee;
+    --ink-soft: #a4afa9;
+    --ink-faint: #717c78;
+    --line: #2a343a;
+    --line-strong: #3a454b;
+    --accent: #3fae7c;
+    --accent-ink: #06130d;
+    --accent-soft: #16332a;
+    --accent-strong: #6cc99c;
+    --gold: #e3ac4a;
+    --gold-soft: #3a2c14;
+    --success: #3fae7c;
+    --success-soft: #16332a;
+    --warning: #e3ac4a;
+    --warning-soft: #3a2c14;
+    --danger: #e0685a;
+    --danger-soft: #3a1e1b;
+    --info: #6cb0e0;
+    --info-soft: #16293a;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #10161a;
+  --surface: #171f24;
+  --surface-2: #1d262b;
+  --ink: #edf1ee;
+  --ink-soft: #a4afa9;
+  --ink-faint: #717c78;
+  --line: #2a343a;
+  --line-strong: #3a454b;
+  --accent: #3fae7c;
+  --accent-ink: #06130d;
+  --accent-soft: #16332a;
+  --accent-strong: #6cc99c;
+  --gold: #e3ac4a;
+  --gold-soft: #3a2c14;
+  --success: #3fae7c;
+  --success-soft: #16332a;
+  --warning: #e3ac4a;
+  --warning-soft: #3a2c14;
+  --danger: #e0685a;
+  --danger-soft: #3a1e1b;
+  --info: #6cb0e0;
+  --info-soft: #16293a;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-touch-callout: none;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: none;
+  min-height: 100dvh;
+}
+
+/* iOS momentum scroll for any explicitly scrollable panel */
+.momentum-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Minimum comfortable touch target, per Apple HIG */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.glass {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
