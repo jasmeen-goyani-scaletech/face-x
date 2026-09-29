@@ -24,6 +24,16 @@ export default function EmergencyStep({
     onChange({ ...reg, emergency: { ...reg.emergency, [key]: value } });
   }
 
+  function clearError(key: string, valid: boolean) {
+    if (!valid) return;
+    setErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   function validateAndNext() {
     const em = reg.emergency;
     const e: Record<string, string> = {};
@@ -42,16 +52,54 @@ export default function EmergencyStep({
 
       <h3 className="text-[12px] text-ink-faint tracking-wide mb-2">Parent / Guardian</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-        <TextField id="guardianName" label="Guardian Full Name" value={reg.emergency.guardianName} error={errors.guardianName} onChange={(e) => set('guardianName', e.target.value)} />
+        <TextField
+          id="guardianName"
+          label="Guardian Full Name"
+          value={reg.emergency.guardianName}
+          error={errors.guardianName}
+          onChange={(e) => {
+            set('guardianName', e.target.value);
+            clearError('guardianName', !!e.target.value.trim());
+          }}
+        />
         <TextField id="relationship" label="Relationship" optional placeholder="Mother, Father, Legal Guardian" value={reg.emergency.relationship} onChange={(e) => set('relationship', e.target.value)} />
-        <TextField id="guardianPhone" label="Guardian Mobile" type="tel" value={reg.emergency.guardianPhone} error={errors.guardianPhone} onChange={(e) => set('guardianPhone', e.target.value)} />
+        <TextField
+          id="guardianPhone"
+          label="Guardian Mobile"
+          type="tel"
+          value={reg.emergency.guardianPhone}
+          error={errors.guardianPhone}
+          onChange={(e) => {
+            set('guardianPhone', e.target.value);
+            clearError('guardianPhone', e.target.value.replace(/\D/g, '').length >= 7);
+          }}
+        />
         <TextField id="guardianEmail" label="Guardian Email" type="email" optional value={reg.emergency.guardianEmail} onChange={(e) => set('guardianEmail', e.target.value)} />
       </div>
 
       <h3 className="text-[12px] text-ink-faint tracking-wide mb-2 mt-4">Emergency Contact (if different)</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-        <TextField id="ecName" label="Contact Name" value={reg.emergency.emergencyContactName} error={errors.emergencyContactName} onChange={(e) => set('emergencyContactName', e.target.value)} />
-        <TextField id="ecPhone" label="Contact Phone" type="tel" value={reg.emergency.emergencyContactPhone} error={errors.emergencyContactPhone} onChange={(e) => set('emergencyContactPhone', e.target.value)} />
+        <TextField
+          id="ecName"
+          label="Contact Name"
+          value={reg.emergency.emergencyContactName}
+          error={errors.emergencyContactName}
+          onChange={(e) => {
+            set('emergencyContactName', e.target.value);
+            clearError('emergencyContactName', !!e.target.value.trim());
+          }}
+        />
+        <TextField
+          id="ecPhone"
+          label="Contact Phone"
+          type="tel"
+          value={reg.emergency.emergencyContactPhone}
+          error={errors.emergencyContactPhone}
+          onChange={(e) => {
+            set('emergencyContactPhone', e.target.value);
+            clearError('emergencyContactPhone', e.target.value.replace(/\D/g, '').length >= 7);
+          }}
+        />
       </div>
 
       <div className="flex justify-between mt-2">

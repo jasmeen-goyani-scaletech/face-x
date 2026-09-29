@@ -21,9 +21,10 @@ export default function DocumentsStep({
   onBack: () => void;
 }) {
   const [showAlert, setShowAlert] = useState(false);
+  const documentsMissing = !reg.documents.profilePhoto.uploaded || !reg.documents.birthCertificateOrPassport.uploaded;
 
   function validateAndNext() {
-    if (!reg.documents.profilePhoto.uploaded || !reg.documents.birthCertificateOrPassport.uploaded) {
+    if (documentsMissing) {
       setShowAlert(true);
       return;
     }
@@ -60,7 +61,7 @@ export default function DocumentsStep({
         onChange={(next) => onChange({ ...reg, documents: { ...reg.documents, birthCertificateOrPassport: next } })}
       />
 
-      {showAlert && <div className="mt-4"><Alert level="danger" title="Missing items">Take your Face-X photo and upload a birth certificate or passport copy before continuing.</Alert></div>}
+      {showAlert && documentsMissing && <div className="mt-4"><Alert level="danger" title="Missing items">Take your Face-X photo and upload a birth certificate or passport copy before continuing.</Alert></div>}
 
       <div className="flex justify-between mt-5">
         <Button variant="secondary" onClick={onBack}>

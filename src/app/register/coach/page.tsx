@@ -43,6 +43,16 @@ export default function CoachRegisterPage() {
     window.scrollTo(0, 0);
   }
 
+  function clearError(key: string, valid: boolean) {
+    if (!valid) return;
+    setErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   function validateBasic() {
     const e: Record<string, string> = {};
     if (!reg.basic.firstName.trim()) e.firstName = 'Required';
@@ -57,10 +67,11 @@ export default function CoachRegisterPage() {
     }
   }
 
+  const c = reg.certificates;
+  const certificatesMissing = !c.firstAidCpr.uploaded || !c.yalfTackle.uploaded || !c.backgroundCheckRef.uploaded || !reg.ab506Acknowledged;
+
   function submitCertificates() {
-    const c = reg.certificates;
-    const allUploaded = c.firstAidCpr.uploaded && c.yalfTackle.uploaded && c.backgroundCheckRef.uploaded;
-    if (!allUploaded || !reg.ab506Acknowledged) {
+    if (certificatesMissing) {
       setCertAlert(true);
       return;
     }
@@ -89,10 +100,52 @@ export default function CoachRegisterPage() {
             <h2 className="text-xl mb-1">Coach Registration</h2>
             <p className="text-ink-soft mb-5">Personal details only — no payment required.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-              <TextField id="firstName" label="First Name" value={reg.basic.firstName} error={errors.firstName} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, firstName: e.target.value } })} />
-              <TextField id="lastName" label="Last Name" value={reg.basic.lastName} error={errors.lastName} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, lastName: e.target.value } })} />
-              <TextField id="phone" label="Mobile Number" type="tel" value={reg.basic.phone} error={errors.phone} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, phone: e.target.value } })} />
-              <TextField id="email" label="Email" type="email" value={reg.basic.email} error={errors.email} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, email: e.target.value } })} />
+              <TextField
+                id="firstName"
+                label="First Name"
+                value={reg.basic.firstName}
+                error={errors.firstName}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, firstName: value } });
+                  clearError('firstName', !!value.trim());
+                }}
+              />
+              <TextField
+                id="lastName"
+                label="Last Name"
+                value={reg.basic.lastName}
+                error={errors.lastName}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, lastName: value } });
+                  clearError('lastName', !!value.trim());
+                }}
+              />
+              <TextField
+                id="phone"
+                label="Mobile Number"
+                type="tel"
+                value={reg.basic.phone}
+                error={errors.phone}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, phone: value } });
+                  clearError('phone', value.replace(/\D/g, '').length >= 7);
+                }}
+              />
+              <TextField
+                id="email"
+                label="Email"
+                type="email"
+                value={reg.basic.email}
+                error={errors.email}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, email: value } });
+                  clearError('email', value.includes('@'));
+                }}
+              />
             </div>
             <div className="flex justify-end mt-2">
               <Button variant="primary" onClick={validateBasic}>
@@ -122,7 +175,7 @@ export default function CoachRegisterPage() {
               I acknowledge California Child Abuse Prevention Act (AB 506) compliance requirements and consent to a background check.
             </label>
 
-            {certAlert && <div className="mt-4"><Alert level="danger" title="Certificates incomplete">Upload all three documents and acknowledge AB 506 compliance to submit.</Alert></div>}
+            {certAlert && certificatesMissing && <div className="mt-4"><Alert level="danger" title="Certificates incomplete">Upload all three documents and acknowledge AB 506 compliance to submit.</Alert></div>}
 
             <div className="flex justify-between mt-5">
               <Button variant="secondary" onClick={() => goTo('basic')}>

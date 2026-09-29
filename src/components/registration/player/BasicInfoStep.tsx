@@ -31,6 +31,16 @@ export default function BasicInfoStep({
     onChange({ ...reg, basic: { ...reg.basic, [key]: value } });
   }
 
+  function clearError(key: string, valid: boolean) {
+    if (!valid) return;
+    setErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   function validateAndNext() {
     const b = reg.basic;
     const e: Record<string, string> = {};
@@ -55,12 +65,61 @@ export default function BasicInfoStep({
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-        <TextField id="firstName" label="First Name" value={reg.basic.firstName} error={errors.firstName} onChange={(e) => set('firstName', e.target.value)} />
-        <TextField id="lastName" label="Last Name" value={reg.basic.lastName} error={errors.lastName} onChange={(e) => set('lastName', e.target.value)} />
-        <TextField id="dob" label="Date of Birth" type="date" value={reg.basic.dob} error={errors.dob} onChange={(e) => set('dob', e.target.value)} />
-        <TextField id="phone" label="Mobile Number" type="tel" placeholder="(555) 555-0100" value={reg.basic.phone} error={errors.phone} onChange={(e) => set('phone', e.target.value)} />
+        <TextField
+          id="firstName"
+          label="First Name"
+          value={reg.basic.firstName}
+          error={errors.firstName}
+          onChange={(e) => {
+            set('firstName', e.target.value);
+            clearError('firstName', !!e.target.value.trim());
+          }}
+        />
+        <TextField
+          id="lastName"
+          label="Last Name"
+          value={reg.basic.lastName}
+          error={errors.lastName}
+          onChange={(e) => {
+            set('lastName', e.target.value);
+            clearError('lastName', !!e.target.value.trim());
+          }}
+        />
+        <TextField
+          id="dob"
+          label="Date of Birth"
+          type="date"
+          value={reg.basic.dob}
+          error={errors.dob}
+          onChange={(e) => {
+            set('dob', e.target.value);
+            clearError('dob', !!e.target.value);
+          }}
+        />
+        <TextField
+          id="phone"
+          label="Mobile Number"
+          type="tel"
+          placeholder="(555) 555-0100"
+          value={reg.basic.phone}
+          error={errors.phone}
+          onChange={(e) => {
+            set('phone', e.target.value);
+            clearError('phone', e.target.value.replace(/\D/g, '').length >= 7);
+          }}
+        />
       </div>
-      <TextField id="email" label="Email" type="email" value={reg.basic.email} error={errors.email} onChange={(e) => set('email', e.target.value)} />
+      <TextField
+        id="email"
+        label="Email"
+        type="email"
+        value={reg.basic.email}
+        error={errors.email}
+        onChange={(e) => {
+          set('email', e.target.value);
+          clearError('email', e.target.value.includes('@'));
+        }}
+      />
 
       {reg.basic.dob && (
         <div className="rounded-m bg-accent-soft px-4 py-3 mb-4 flex items-center justify-between text-sm">

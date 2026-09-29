@@ -46,6 +46,16 @@ export default function StaffRegisterPage() {
     window.scrollTo(0, 0);
   }
 
+  function clearError(key: string, valid: boolean) {
+    if (!valid) return;
+    setErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   function validateBasic() {
     const e: Record<string, string> = {};
     if (!reg.basic.firstName.trim()) e.firstName = 'Required';
@@ -53,7 +63,6 @@ export default function StaffRegisterPage() {
     if (!reg.basic.phone.trim() || reg.basic.phone.replace(/\D/g, '').length < 7) e.phone = 'Enter a valid phone number';
     if (!reg.basic.email.trim() || !reg.basic.email.includes('@')) e.email = 'Enter a valid email';
     if (!reg.role) e.role = 'Select a role';
-    if (!reg.clubAffiliation.trim()) e.clubAffiliation = 'Required';
     setErrors(e);
     if (Object.keys(e).length === 0) {
       setReg({ ...reg, status: 'draft', step: 'proof' });
@@ -62,8 +71,10 @@ export default function StaffRegisterPage() {
     }
   }
 
+  const proofMissing = !reg.livePhoto.uploaded || !reg.backgroundCheckRef.uploaded;
+
   function submitProof() {
-    if (!reg.livePhoto.uploaded || !reg.backgroundCheckRef.uploaded) {
+    if (proofMissing) {
       setProofAlert(true);
       return;
     }
@@ -85,12 +96,64 @@ export default function StaffRegisterPage() {
             <h2 className="text-xl mb-1">Staff Registration</h2>
             <p className="text-ink-soft mb-5">Personal details and administrative role.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-              <TextField id="firstName" label="First Name" value={reg.basic.firstName} error={errors.firstName} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, firstName: e.target.value } })} />
-              <TextField id="lastName" label="Last Name" value={reg.basic.lastName} error={errors.lastName} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, lastName: e.target.value } })} />
-              <TextField id="phone" label="Mobile Number" type="tel" value={reg.basic.phone} error={errors.phone} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, phone: e.target.value } })} />
-              <TextField id="email" label="Email" type="email" value={reg.basic.email} error={errors.email} onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, email: e.target.value } })} />
+              <TextField
+                id="firstName"
+                label="First Name"
+                value={reg.basic.firstName}
+                error={errors.firstName}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, firstName: value } });
+                  clearError('firstName', !!value.trim());
+                }}
+              />
+              <TextField
+                id="lastName"
+                label="Last Name"
+                value={reg.basic.lastName}
+                error={errors.lastName}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, lastName: value } });
+                  clearError('lastName', !!value.trim());
+                }}
+              />
+              <TextField
+                id="phone"
+                label="Mobile Number"
+                type="tel"
+                value={reg.basic.phone}
+                error={errors.phone}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, phone: value } });
+                  clearError('phone', value.replace(/\D/g, '').length >= 7);
+                }}
+              />
+              <TextField
+                id="email"
+                label="Email"
+                type="email"
+                value={reg.basic.email}
+                error={errors.email}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setReg({ ...reg, basic: { ...reg.basic, email: value } });
+                  clearError('email', value.includes('@'));
+                }}
+              />
             </div>
-            <SelectField id="role" label="Administrative Role" value={reg.role ?? ''} error={errors.role} onChange={(e) => setReg({ ...reg, role: e.target.value as StaffRegistration['role'] })}>
+            <SelectField
+              id="role"
+              label="Administrative Role"
+              value={reg.role ?? ''}
+              error={errors.role}
+              onChange={(e) => {
+                const value = e.target.value as StaffRegistration['role'];
+                setReg({ ...reg, role: value });
+                clearError('role', !!value);
+              }}
+            >
               <option value="">Select a role</option>
               {STAFF_ROLES.map((r) => (
                 <option key={r} value={r}>
@@ -98,7 +161,6 @@ export default function StaffRegisterPage() {
                 </option>
               ))}
             </SelectField>
-            <TextField id="club" label="Club Affiliation" value={reg.clubAffiliation} error={errors.clubAffiliation} onChange={(e) => setReg({ ...reg, clubAffiliation: e.target.value })} />
             <div className="flex justify-end mt-2">
               <Button variant="primary" onClick={validateBasic}>
                 Continue <ChevronRightIcon size={16} />
@@ -119,7 +181,7 @@ export default function StaffRegisterPage() {
             <UploadField label="Background-Check Reference / Proof" value={reg.backgroundCheckRef} onChange={(next) => setReg({ ...reg, backgroundCheckRef: next })} />
             <UploadField label="Safe-Sport Compliance Upload" value={reg.safeSportUpload} onChange={(next) => setReg({ ...reg, safeSportUpload: next })} />
 
-            {proofAlert && <div className="mt-4"><Alert level="danger" title="Missing items">Take your live photo and upload the background-check reference before continuing.</Alert></div>}
+            {proofAlert && proofMissing && <div className="mt-4"><Alert level="danger" title="Missing items">Take your live photo and upload the background-check reference before continuing.</Alert></div>}
 
             <div className="flex justify-between mt-5">
               <Button variant="secondary" onClick={() => goTo('basic')}>
