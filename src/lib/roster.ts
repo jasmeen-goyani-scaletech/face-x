@@ -231,10 +231,11 @@ export function useEventRoster() {
     function onServerCheckIns(e: Event) {
       const checkIns = (e as CustomEvent<ServerCheckIn[]>).detail;
       setRoster((prev) => {
-        const byPerson = new Map(checkIns.map((c) => [c.personId, c]));
+        // Matched on registration ID + role: a roster row's own id is random per browser, so it can't identify anyone across devices.
+        const byPerson = new Map(checkIns.map((c) => [`${c.role}:${c.schoolId}`, c]));
         let changed = false;
         const next = prev.map((r) => {
-          const c = byPerson.get(r.id);
+          const c = r.schoolId ? byPerson.get(`${r.role}:${r.schoolId}`) : undefined;
           if (!c || r.checkedInAt) return r;
           changed = true;
           return { ...r, checkedInAt: c.checkedInAt, checkedInMethod: c.method, checkedInOverride: c.override };

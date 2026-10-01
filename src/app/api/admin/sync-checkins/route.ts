@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 interface StoredCheckIn {
   uuid: string;
-  personId: string;
+  /** Registration ID: the same on every device, unlike a client's local roster row id. */
+  schoolId: string;
   role: string;
   method: string;
   override: boolean;
@@ -30,12 +31,12 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
-  const { uuid, personId, role, method, override, checkedInAt } = body;
+  const { uuid, schoolId, role, method, override, checkedInAt } = body;
   if (
     typeof uuid !== 'string' ||
     !uuid ||
-    typeof personId !== 'string' ||
-    !personId ||
+    typeof schoolId !== 'string' ||
+    !schoolId ||
     typeof role !== 'string' ||
     !ROLES.has(role) ||
     typeof method !== 'string' ||
@@ -46,17 +47,18 @@ export async function POST(request: Request) {
   }
   // Idempotent: a retry of an already-recorded uuid is acknowledged, never recorded twice.
   if (!store.has(uuid)) {
-    store.set(uuid, { uuid, personId, role, method, override: !!override, checkedInAt, receivedAt: Date.now() });
+    store.set(uuid, { uuid, schoolId, role, method, override: !!override, checkedInAt, receivedAt: Date.now() });
   }
   return NextResponse.json({ ok: true, uuid });
 }
 
-/** The server's current view: one check-in per person (the earliest), for the client to reconcile against. */
+/** The server's current view: one check-in per person, keyed by role + registration ID (the earliest), for the client to reconcile against. */
 export async function GET() {
   const earliest = new Map<string, StoredCheckIn>();
   for (const c of store.values()) {
-    const prev = earliest.get(c.personId);
-    if (!prev || c.checkedInAt < prev.checkedInAt) earliest.set(c.personId, c);
+    const key = `${c.role}:${c.schoolId}`;
+    const prev = earliest.get(key);
+    if (!prev || c.checkedInAt < prev.checkedInAt) earliest.set(key, c);
   }
   return NextResponse.json({ checkIns: [...earliest.values()] }, { headers: { 'Cache-Control': 'no-store' } });
 }

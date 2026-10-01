@@ -1,5 +1,5 @@
 import type { RosterEntry } from '../seed';
-import { getOfflineDb, newUuid, type PendingCheckIn } from './db';
+import { getOfflineDb, newUuid, tableForRole, type PendingCheckIn } from './db';
 import { markCachedCheckedIn } from './rosterCache';
 
 export const SYNC_ENDPOINT = '/api/admin/sync-checkins';
@@ -9,7 +9,9 @@ export const SERVER_CHECKINS_EVENT = 'facex:server-checkins';
 /** What the server knows about a check-in, as returned by GET. */
 export interface ServerCheckIn {
   uuid: string;
-  personId: string;
+  /** Registration ID, stable across devices (a roster row's own id is random per browser). */
+  schoolId: string;
+  role: RosterEntry['role'];
   method: string;
   override: boolean;
   checkedInAt: number;
@@ -27,12 +29,13 @@ export interface SyncResult {
  * Records a check-in made on this device: updates the cached roster record immediately (the roster UI is updated by the
  * caller) and appends it to the pending queue. Resolves once both are stored; never throws.
  */
-export async function enqueueCheckIn(entry: Pick<RosterEntry, 'id' | 'role'>, method: string, override: boolean, checkedInAt: number): Promise<void> {
+export async function enqueueCheckIn(entry: Pick<RosterEntry, 'id' | 'role' | 'schoolId'>, method: string, override: boolean, checkedInAt: number): Promise<void> {
   const db = getOfflineDb();
   if (!db) return;
   const item: PendingCheckIn = {
     uuid: newUuid(),
     personId: entry.id,
+    schoolId: entry.schoolId,
     role: entry.role,
     method,
     override,
@@ -67,7 +70,7 @@ let running: Promise<SyncResult> | null = null;
  *  - 200: the item leaves the queue.
  *  - Network error / 5xx: stop here and leave it (and everything after it) PENDING for the next attempt, so order is kept.
  *  - Other 4xx: the server rejected it for good; mark it FAILED and move on instead of retrying forever.
- * Afterwards, if anything synced, re-fetches the server's check-ins and broadcasts them so the roster can reconcile.
+ * Afterwards, unless the server was unreachable, re-fetches its check-ins and broadcasts them so the roster can reconcile.
  * Concurrent calls (and other tabs, via Web Locks) share one run.
  */
 export function processQueue(): Promise<SyncResult> {
@@ -91,13 +94,20 @@ async function runQueue(): Promise<SyncResult> {
   const queue = (await db.pendingCheckIns.where('status').equals('PENDING').sortBy('createdAt')) as PendingCheckIn[];
 
   for (const item of queue) {
-    await db.pendingCheckIns.update(item.uuid, { status: 'SYNCING' });
+    // Items queued before schoolId existed: recover it from the cached roster row, or give up on them rather than guess.
+    const schoolId = item.schoolId || (await tableForRole(db, item.role).get(item.personId))?.schoolId;
+    if (!schoolId) {
+      await db.pendingCheckIns.update(item.uuid, { status: 'FAILED', lastError: 'No registration ID to identify this person' });
+      result.failed += 1;
+      continue;
+    }
+    await db.pendingCheckIns.update(item.uuid, { status: 'SYNCING', schoolId });
     let res: Response;
     try {
       res = await fetch(SYNC_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid: item.uuid, personId: item.personId, role: item.role, method: item.method, override: item.override, checkedInAt: item.checkedInAt })
+        body: JSON.stringify({ uuid: item.uuid, schoolId, role: item.role, method: item.method, override: item.override, checkedInAt: item.checkedInAt })
       });
     } catch (err) {
       await db.pendingCheckIns.update(item.uuid, { status: 'PENDING', attempts: item.attempts + 1, lastError: err instanceof Error ? err.message : 'Network error' });
@@ -120,7 +130,9 @@ async function runQueue(): Promise<SyncResult> {
 
   result.remaining = await db.pendingCheckIns.where('status').equals('PENDING').count();
 
-  if (result.synced > 0) {
+  // Reconcile on every pass that reached the server, not just after a push: a device with nothing queued still learns
+  // what other devices checked in.
+  if (!result.interrupted) {
     try {
       const res = await fetch(SYNC_ENDPOINT, { cache: 'no-store' });
       if (res.ok) {

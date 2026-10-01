@@ -10,7 +10,10 @@ export type PendingStatus = 'PENDING' | 'SYNCING' | 'FAILED';
 export interface PendingCheckIn {
   /** Idempotency key: the server ignores a uuid it has already recorded, so a retry can never double check-in. */
   uuid: string;
+  /** This browser's roster row id. Random per browser, so it only identifies the person locally. */
   personId: string;
+  /** The stable registration ID (e.g. SID-48214): what the server and other devices identify the person by. Absent on items queued by older builds. */
+  schoolId?: string;
   role: RosterEntry['role'];
   method: string;
   override: boolean;
