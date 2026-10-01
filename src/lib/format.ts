@@ -26,7 +26,7 @@ export function initialsOf(first: string, last: string): string {
   return ((first || '').charAt(0) + (last || '').charAt(0)).toUpperCase() || '?';
 }
 
-const AVATAR_VARS = ['--accent', '--info', '--gold', '--accent-strong', '--success'];
+const AVATAR_VARS = ['--primary', '--info', '--gold', '--primary-strong', '--success'];
 export function avatarVar(seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;

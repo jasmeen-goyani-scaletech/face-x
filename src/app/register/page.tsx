@@ -5,7 +5,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Topbar from '@/components/layout/Topbar';
 import Alert from '@/components/ui/Alert';
-import { resolveInvite } from '@/lib/teams';
+import { resolveInvite, type InviteResolution } from '@/lib/teams';
 import { TrophyIcon, ShieldIcon, UsersIcon, ChevronRightIcon } from '@/components/ui/Icons';
 
 interface DraftInfo {
@@ -43,18 +43,24 @@ function RoleSelection() {
   const params = useSearchParams();
   const teamId = params.get('teamId');
   const inviteCode = params.get('inviteCode');
-  const resolution = resolveInvite(teamId, inviteCode);
   const qs = teamId || inviteCode ? `?${params.toString()}` : '';
   const [drafts, setDrafts] = useState<DraftInfo[]>([]);
+  // resolveInvite reads the client-only team store (localStorage-backed), which the server can't
+  // see — computing it during the initial render would make server and client output diverge and
+  // throw a hydration error. Deferring to an effect (like `drafts` below) keeps first paint
+  // identical on both sides; the real resolution appears a tick later on the client only.
+  const [resolution, setResolution] = useState<InviteResolution>({ invite: null, status: 'none' });
 
   useEffect(() => {
     setDrafts(readDrafts());
-  }, []);
+    setResolution(resolveInvite(teamId, inviteCode));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, inviteCode]);
 
   return (
     <main>
       <Topbar eyebrow="New registration" />
-      <div className="mx-auto max-w-[640px] px-5 pt-8 pb-16">
+      <div className="mx-auto max-w-[640px] page-gutter pt-8 pb-16">
         <h1 className="text-2xl mb-1">Who&rsquo;s registering?</h1>
         <p className="text-ink-soft mb-6">Choose a pathway to get started. Each takes about 10 minutes.</p>
 
@@ -68,7 +74,7 @@ function RoleSelection() {
                 <Link
                   key={d.key}
                   href={d.href}
-                  className="flex items-center justify-between rounded-s border border-line px-3.5 py-2.5 no-underline hover:border-accent"
+                  className="flex items-center justify-between rounded-s border border-line px-3.5 py-2.5 no-underline hover:border-primary"
                 >
                   <span className="text-sm">
                     <strong>{d.role}</strong> · {d.name}
@@ -97,6 +103,11 @@ function RoleSelection() {
             This invite code isn&rsquo;t valid for that team. You can still register and select your team manually.
           </Alert>
         )}
+        {resolution.status === 'team_disabled' && (
+          <Alert level="warning" title="This team isn&rsquo;t accepting registrations">
+            The team in this link has been disabled. You can still register and select your team manually, or contact your coach for an updated link.
+          </Alert>
+        )}
 
         <div className="grid gap-3">
           <RoleCard
@@ -107,13 +118,13 @@ function RoleSelection() {
             highlight={resolution.status === 'valid'}
           />
           <RoleCard
-            href="/register/coach"
+            href={`/register/coach${qs}`}
             icon={<UsersIcon size={20} />}
             title="Coach"
             desc="Personal details and certification uploads. No payment required."
           />
           <RoleCard
-            href="/register/staff"
+            href={`/register/staff${qs}`}
             icon={<ShieldIcon size={20} />}
             title="Staff"
             desc="Team managers, athletic trainers, equipment managers, and safety officers."
@@ -142,11 +153,11 @@ function RoleCard({
       href={href}
       className={[
         'flex items-center justify-between gap-3 rounded-l border bg-surface px-5 py-4 no-underline',
-        highlight ? 'border-accent ring-1 ring-accent' : 'border-line hover:border-line-strong'
+        highlight ? 'border-primary ring-1 ring-primary' : 'border-line hover:border-line-strong'
       ].join(' ')}
     >
       <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-s bg-accent-soft text-accent-strong">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-s bg-primary-light text-primary-strong">
           {icon}
         </span>
         <div>

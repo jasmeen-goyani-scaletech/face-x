@@ -1,18 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Topbar from '@/components/layout/Topbar';
+import { useRememberActiveRole } from '@/lib/activeRole';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Alert from '@/components/ui/Alert';
 import Chip from '@/components/ui/Chip';
-import StepRail from '@/components/ui/StepRail';
-import UploadField from '@/components/ui/UploadField';
-import SelfieField from '@/components/camera/SelfieField';
+import ModernStepper from '@/components/ui/ModernStepper';
+import StepActions from '@/components/ui/StepActions';
+import MergedPhotoAndDocsStep from '@/components/registration/MergedPhotoAndDocsStep';
 import { TextField, SelectField } from '@/components/ui/Field';
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon } from '@/components/ui/Icons';
 import { useLocalStorage } from '@/lib/storage';
 import { freshStaffRegistration, STAFF_ROLES, type StaffRegistration, type StaffStep } from '@/lib/types';
+import { resolveInvite } from '@/lib/teams';
+import { MSG, compact, validatePersonBasics } from '@/lib/validation';
+import { useFieldErrors } from '@/lib/useFieldErrors';
+import { uploadStepErrors } from '@/lib/uploadStepValidation';
 
 const STEPS = [
   { key: 'basic', label: 'Register' },
@@ -27,16 +33,40 @@ const ROLE_CARD_COLOR: Record<string, string> = {
   'Safety Officer': 'bg-success-soft text-success border-success'
 };
 
-export default function StaffRegisterPage() {
-  const [reg, setReg, hydrated] = useLocalStorage<StaffRegistration>('facex-staff-registration', freshStaffRegistration());
+function StaffWizard() {
+  const params = useSearchParams();
+  const teamId = params.get('teamId');
+  const inviteCode = params.get('inviteCode');
+  const resolution = resolveInvite(teamId, inviteCode);
+
+  const [reg, setReg, hydrated] = useLocalStorage<StaffRegistration>('facex-staff-registration', freshStaffRegistration(resolution.invite));
+  useRememberActiveRole('staff', reg.status, hydrated);
   const [step, setStep] = useState<StaffStep>('basic');
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [proofAlert, setProofAlert] = useState(false);
+  // Keys equal the input ids, so Continue focuses the first invalid field.
+  const { error, blur, submit } = useFieldErrors(
+    { ...validatePersonBasics(reg.basic), ...compact({ role: reg.role ? null : MSG.role }) },
+    ['firstName', 'lastName', 'phone', 'email', 'role'] as const
+  );
+  // The photo and every missing required document show their errors at once; Submit focuses the first one.
+  // Keys equal the focus-target ids (the capture button and each Upload button).
+  const proofStep = uploadStepErrors({ id: 'livePhoto', uploaded: reg.livePhoto.uploaded }, [
+    { id: 'backgroundCheckRef', label: 'Background-Check Reference / Proof', required: true, uploaded: reg.backgroundCheckRef.uploaded },
+    { id: 'safeSportUpload', label: 'Safe-Sport Compliance Upload', required: false, uploaded: reg.safeSportUpload.uploaded }
+  ]);
+  const proof = useFieldErrors(proofStep.errors, proofStep.order);
 
   useEffect(() => {
     if (hydrated) setStep(reg.step || 'basic');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
+
+  // Attach a resolved invite the first time it's seen, without clobbering a registration already in progress.
+  useEffect(() => {
+    if (hydrated && resolution.invite && !reg.invite) {
+      setReg({ ...reg, invite: resolution.invite });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, resolution.invite]);
 
   if (!hydrated) return null;
 
@@ -46,39 +76,16 @@ export default function StaffRegisterPage() {
     window.scrollTo(0, 0);
   }
 
-  function clearError(key: string, valid: boolean) {
-    if (!valid) return;
-    setErrors((prev) => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }
-
   function validateBasic() {
-    const e: Record<string, string> = {};
-    if (!reg.basic.firstName.trim()) e.firstName = 'Required';
-    if (!reg.basic.lastName.trim()) e.lastName = 'Required';
-    if (!reg.basic.phone.trim() || reg.basic.phone.replace(/\D/g, '').length < 7) e.phone = 'Enter a valid phone number';
-    if (!reg.basic.email.trim() || !reg.basic.email.includes('@')) e.email = 'Enter a valid email';
-    if (!reg.role) e.role = 'Select a role';
-    setErrors(e);
-    if (Object.keys(e).length === 0) {
+    if (submit()) {
       setReg({ ...reg, status: 'draft', step: 'proof' });
       setStep('proof');
       window.scrollTo(0, 0);
     }
   }
 
-  const proofMissing = !reg.livePhoto.uploaded || !reg.backgroundCheckRef.uploaded;
-
   function submitProof() {
-    if (proofMissing) {
-      setProofAlert(true);
-      return;
-    }
-    setProofAlert(false);
+    if (!proof.submit()) return;
     const id = `FXS-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
     setReg({ ...reg, id, status: 'submitted', createdAt: Date.now(), adminStatus: 'pending', step: 'status' });
     setStep('status');
@@ -88,71 +95,63 @@ export default function StaffRegisterPage() {
   return (
     <main>
       <Topbar eyebrow="Staff registration" />
-      <div className="mx-auto max-w-[640px] px-5 pt-6 pb-16">
-        {reg.status !== 'submitted' && <StepRail steps={STEPS} current={step} />}
+      <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
+        {reg.status !== 'submitted' && <ModernStepper steps={STEPS} current={step} />}
 
         {step === 'basic' && (
           <Card>
             <h2 className="text-xl mb-1">Staff Registration</h2>
             <p className="text-ink-soft mb-5">Personal details and administrative role.</p>
+
+            {reg.invite && (
+              <Alert level="success" title={`Registering for ${reg.invite.teamName}`}>
+                {reg.invite.club} — team is locked to this invite.
+              </Alert>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
               <TextField
                 id="firstName"
                 label="First Name"
                 value={reg.basic.firstName}
-                error={errors.firstName}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setReg({ ...reg, basic: { ...reg.basic, firstName: value } });
-                  clearError('firstName', !!value.trim());
-                }}
+                error={error('firstName')}
+                onBlur={blur('firstName')}
+                onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, firstName: e.target.value } })}
               />
               <TextField
                 id="lastName"
                 label="Last Name"
                 value={reg.basic.lastName}
-                error={errors.lastName}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setReg({ ...reg, basic: { ...reg.basic, lastName: value } });
-                  clearError('lastName', !!value.trim());
-                }}
+                error={error('lastName')}
+                onBlur={blur('lastName')}
+                onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, lastName: e.target.value } })}
               />
               <TextField
                 id="phone"
                 label="Mobile Number"
                 type="tel"
                 value={reg.basic.phone}
-                error={errors.phone}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setReg({ ...reg, basic: { ...reg.basic, phone: value } });
-                  clearError('phone', value.replace(/\D/g, '').length >= 7);
-                }}
+                error={error('phone')}
+                onBlur={blur('phone')}
+                onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, phone: e.target.value } })}
               />
               <TextField
                 id="email"
                 label="Email"
                 type="email"
                 value={reg.basic.email}
-                error={errors.email}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setReg({ ...reg, basic: { ...reg.basic, email: value } });
-                  clearError('email', value.includes('@'));
-                }}
+                error={error('email')}
+                onBlur={blur('email')}
+                onChange={(e) => setReg({ ...reg, basic: { ...reg.basic, email: e.target.value } })}
               />
             </div>
             <SelectField
               id="role"
               label="Administrative Role"
               value={reg.role ?? ''}
-              error={errors.role}
-              onChange={(e) => {
-                const value = e.target.value as StaffRegistration['role'];
-                setReg({ ...reg, role: value });
-                clearError('role', !!value);
-              }}
+              error={error('role')}
+              onBlur={blur('role')}
+              onChange={(e) => setReg({ ...reg, role: e.target.value as StaffRegistration['role'] })}
             >
               <option value="">Select a role</option>
               {STAFF_ROLES.map((r) => (
@@ -161,37 +160,43 @@ export default function StaffRegisterPage() {
                 </option>
               ))}
             </SelectField>
-            <div className="flex justify-end mt-2">
-              <Button variant="primary" onClick={validateBasic}>
-                Continue <ChevronRightIcon size={16} />
-              </Button>
-            </div>
+            <StepActions onNext={validateBasic} />
           </Card>
         )}
 
         {step === 'proof' && (
-          <Card>
-            <h2 className="text-xl mb-1">Photo & Background Proof</h2>
-            <p className="text-ink-soft mb-4">A live photo and background-check reference are required. The check itself is performed externally.</p>
-
-            <div className="mb-5">
-              <SelfieField label="Live staff photo" dataUrl={reg.livePhoto.dataUrl || ''} onCapture={(dataUrl) => setReg({ ...reg, livePhoto: { uploaded: true, fileName: 'staff-photo.jpg', dataUrl, review: 'not_submitted' } })} />
-            </div>
-
-            <UploadField label="Background-Check Reference / Proof" value={reg.backgroundCheckRef} onChange={(next) => setReg({ ...reg, backgroundCheckRef: next })} />
-            <UploadField label="Safe-Sport Compliance Upload" value={reg.safeSportUpload} onChange={(next) => setReg({ ...reg, safeSportUpload: next })} />
-
-            {proofAlert && proofMissing && <div className="mt-4"><Alert level="danger" title="Missing items">Take your live photo and upload the background-check reference before continuing.</Alert></div>}
-
-            <div className="flex justify-between mt-5">
-              <Button variant="secondary" onClick={() => goTo('basic')}>
-                <ChevronLeftIcon size={16} /> Back
-              </Button>
-              <Button variant="primary" onClick={submitProof}>
-                Submit Registration <ChevronRightIcon size={16} />
-              </Button>
-            </div>
-          </Card>
+          <MergedPhotoAndDocsStep
+            title="Photo & Background Proof"
+            info="A live photo and background-check reference are required. The check itself is performed externally."
+            photoConfig={{
+              id: 'livePhoto',
+              label: 'Live staff photo',
+              file: reg.livePhoto,
+              error: proof.error('livePhoto'),
+              onCapture: (dataUrl) =>
+                setReg({ ...reg, livePhoto: { uploaded: true, fileName: 'staff-photo.jpg', dataUrl, uploadedAt: Date.now(), review: 'not_submitted' } })
+            }}
+            documentList={[
+              {
+                documentId: 'backgroundCheckRef',
+                label: 'Background-Check Reference / Proof',
+                required: true,
+                value: reg.backgroundCheckRef,
+                error: proof.error('backgroundCheckRef'),
+                onChange: (next) => setReg({ ...reg, backgroundCheckRef: next })
+              },
+              {
+                documentId: 'safeSportUpload',
+                label: 'Safe-Sport Compliance Upload',
+                required: false,
+                value: reg.safeSportUpload,
+                onChange: (next) => setReg({ ...reg, safeSportUpload: next })
+              }
+            ]}
+            onBack={() => goTo('basic')}
+            onNext={submitProof}
+            nextLabel="Submit Registration"
+          />
         )}
 
         {step === 'status' && (
@@ -202,21 +207,12 @@ export default function StaffRegisterPage() {
                   <CheckIcon size={26} />
                 </div>
                 <h2 className="text-xl text-center mb-1">Registration Submitted</h2>
-                <p className="text-ink-soft text-center mb-4">Registration #{reg.id}</p>
+                <p className="text-ink-soft text-center mb-4">
+                  Registration for <strong>{reg.basic.firstName} {reg.basic.lastName}</strong> has been received.
+                </p>
                 <Alert level="warning" title="Pending admin verification">
                   An admin reviews every staff registration before granting event-day access.
                 </Alert>
-                <div className="rounded-m border border-dashed border-gold bg-gold-soft p-3.5">
-                  <div className="text-[11px] font-display font-bold uppercase tracking-wide text-gold mb-2">Demo controls</div>
-                  <div className="flex gap-2 flex-wrap">
-                    <button type="button" className="rounded-s border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-bold" onClick={() => setReg((prev) => ({ ...prev, adminStatus: 'approved' }))}>
-                      Approve staff
-                    </button>
-                    <button type="button" className="rounded-s border border-line-strong bg-surface px-3 py-1.5 text-[12.5px] font-bold" onClick={() => setReg((prev) => ({ ...prev, adminStatus: 'rejected', rejectionReason: 'Background-check reference could not be verified.' }))}>
-                      Reject staff
-                    </button>
-                  </div>
-                </div>
               </>
             )}
 
@@ -243,7 +239,7 @@ export default function StaffRegisterPage() {
                   )}
                   <div className="font-display font-bold text-lg">{reg.basic.firstName} {reg.basic.lastName}</div>
                   <div className="text-sm font-semibold">{reg.role}</div>
-                  <div className="text-[11px] opacity-80 mt-1">{reg.clubAffiliation}</div>
+                  {reg.invite && <div className="text-[11px] opacity-80 mt-1">{reg.invite.teamName}</div>}
                 </div>
                 <p className="text-center mt-4"><Chip kind="success">Ready for event-day face scan</Chip></p>
               </>
@@ -252,5 +248,13 @@ export default function StaffRegisterPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function StaffRegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <StaffWizard />
+    </Suspense>
   );
 }

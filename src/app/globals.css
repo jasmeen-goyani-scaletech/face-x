@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: light;
+  /* Native controls (radio, range, progress, and any checkbox we forget to wrap) use the brand colour too. */
+  accent-color: var(--primary);
   --paper: #f5f6f2;
   --surface: #ffffff;
   --surface-2: #edf0ea;
@@ -13,10 +15,23 @@
   --line: #dce1d8;
   --line-strong: #c3cac0;
 
-  --accent: #1f6f4d;
-  --accent-ink: #ffffff;
-  --accent-soft: #e3f0e8;
-  --accent-strong: #16543a;
+  /* ---- Brand colour -----------------------------------------------------------------------
+     Change --primary (and --primary-foreground, if the new colour needs dark text on it) and the whole UI follows:
+     buttons, checkboxes, focus rings, stepper, badges, links. The other three are derived from --primary with
+     color-mix(); the plain hex line above each is the fallback for browsers without color-mix. */
+  --primary: #1f6f4d;
+  --primary-foreground: #ffffff;
+  --primary-hover: #16543a;
+  --primary-hover: color-mix(in srgb, var(--primary) 78%, black);
+  --primary-light: #e3f0e8;
+  --primary-light: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  --primary-strong: #16543a; /* primary as readable text on a light or tinted surface */
+  --primary-strong: color-mix(in srgb, var(--primary) 78%, black);
+  /* Older names, kept as aliases so existing references keep working. */
+  --accent: var(--primary);
+  --accent-ink: var(--primary-foreground);
+  --accent-soft: var(--primary-light);
+  --accent-strong: var(--primary-strong);
 
   --gold: #b9791a;
   --gold-soft: #faedd2;
@@ -27,6 +42,9 @@
   --warning-soft: #fbeed6;
   --danger: #b23a2e;
   --danger-soft: #f8e2df;
+  --danger-tint: #fcf1ef; /* a whisper of --danger, for highlighting a whole row */
+  --danger-tint: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  --field-error: #dc2626;
   --info: #2b6ca3;
   --info-soft: #e3edf5;
 
@@ -48,10 +66,12 @@
     --ink-faint: #717c78;
     --line: #2a343a;
     --line-strong: #3a454b;
-    --accent: #3fae7c;
-    --accent-ink: #06130d;
-    --accent-soft: #16332a;
-    --accent-strong: #6cc99c;
+    --primary: #3fae7c;
+    --primary-foreground: #06130d;
+    --primary-hover: #35966a;
+    --primary-hover: color-mix(in srgb, var(--primary) 85%, black);
+    --primary-strong: #6cc99c; /* on dark surfaces the readable variant is lighter, not darker */
+    --primary-strong: color-mix(in srgb, var(--primary) 70%, white);
     --gold: #e3ac4a;
     --gold-soft: #3a2c14;
     --success: #3fae7c;
@@ -60,6 +80,7 @@
     --warning-soft: #3a2c14;
     --danger: #e0685a;
     --danger-soft: #3a1e1b;
+    --field-error: #f87171;
     --info: #6cb0e0;
     --info-soft: #16293a;
   }
@@ -75,10 +96,12 @@
   --ink-faint: #717c78;
   --line: #2a343a;
   --line-strong: #3a454b;
-  --accent: #3fae7c;
-  --accent-ink: #06130d;
-  --accent-soft: #16332a;
-  --accent-strong: #6cc99c;
+  --primary: #3fae7c;
+  --primary-foreground: #06130d;
+  --primary-hover: #35966a;
+  --primary-hover: color-mix(in srgb, var(--primary) 85%, black);
+  --primary-strong: #6cc99c;
+  --primary-strong: color-mix(in srgb, var(--primary) 70%, white);
   --gold: #e3ac4a;
   --gold-soft: #3a2c14;
   --success: #3fae7c;
@@ -87,6 +110,7 @@
   --warning-soft: #3a2c14;
   --danger: #e0685a;
   --danger-soft: #3a1e1b;
+  --field-error: #f87171;
   --info: #6cb0e0;
   --info-soft: #16293a;
 }
@@ -116,6 +140,26 @@ body {
   overscroll-behavior: contain;
 }
 
+/* Horizontal page margin: 16px on phones, 24px from 640px up, never under a notch or rounded corner. */
+.page-gutter {
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 640px) {
+  .page-gutter {
+    padding-left: max(1.5rem, env(safe-area-inset-left, 0px));
+    padding-right: max(1.5rem, env(safe-area-inset-right, 0px));
+  }
+}
+
+/* Horizontally scrollable strips (tab bars, mobile nav) without a visible scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Minimum comfortable touch target, per Apple HIG */
 .touch-target {
   min-height: 44px;
@@ -135,6 +179,17 @@ h1, h2, h3, h4 {
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   backdrop-filter: blur(14px) saturate(1.4);
   border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent);
+}
+
+@keyframes scan-line-sweep {
+  0% { top: 8%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 92%; opacity: 0; }
+}
+
+.scan-line {
+  animation: scan-line-sweep 2.2s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

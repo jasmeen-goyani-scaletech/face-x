@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
-import Alert from '@/components/ui/Alert';
-import { CameraIcon, CheckIcon, RefreshIcon, XIcon } from '@/components/ui/Icons';
+import { AlertTriangleIcon, CameraIcon, CheckIcon, ChevronLeftIcon, RefreshIcon } from '@/components/ui/Icons';
+import { FaceGuidanceBanner, FaceReadyFrame } from './FaceGuide';
+import { useFaceGuidance } from './useFaceGuidance';
 
 type Status = 'requesting' | 'live' | 'captured' | 'error';
+type FacingMode = 'user' | 'environment';
 
 interface ErrorInfo {
   title: string;
@@ -52,63 +54,78 @@ function requestCameraStream(constraints: MediaStreamConstraints): Promise<Media
 
 export default function CameraCaptureModal({
   open,
-  heading = 'Position your face in the frame',
+  heading = 'Face Scan',
+  review = true,
   onClose,
   onCapture
 }: {
   open: boolean;
   heading?: string;
+  /** Show the captured photo with Retake / Use This Photo. Turn off for scanning, where the capture is used straight away. */
+  review?: boolean;
   onClose: () => void;
   onCapture: (dataUrl: string) => void;
 }) {
   const [status, setStatus] = useState<Status>('requesting');
   const [error, setError] = useState<ErrorInfo | null>(null);
   const [capturedDataUrl, setCapturedDataUrl] = useState('');
+  const [facingMode, setFacingMode] = useState<FacingMode>('user');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const requestIdRef = useRef(0);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [nudge, setNudge] = useState(false);
+
+  // Live face-positioning guidance: says what to fix, and unlocks the shutter once the face is ready.
+  const face = useFaceGuidance({ active: open && status === 'live', videoRef, frameRef });
+  const ready = face.detector === 'ready' && face.guidance?.code === 'good';
 
   const stopStream = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
 
-  const startLiveCamera = useCallback(() => {
-    stopStream();
-    setStatus('requesting');
-    const myRequestId = ++requestIdRef.current;
+  const startLiveCamera = useCallback(
+    (mode: FacingMode = facingMode) => {
+      stopStream();
+      setStatus('requesting');
+      const myRequestId = ++requestIdRef.current;
 
-    requestCameraStream({ video: { facingMode: 'user' }, audio: false })
-      .catch((err) => {
-        if (err instanceof DOMException && err.name === 'OverconstrainedError') {
-          return requestCameraStream({ video: true, audio: false });
-        }
-        throw err;
-      })
-      .then((stream) => {
-        if (myRequestId !== requestIdRef.current) {
-          stream.getTracks().forEach((t) => t.stop()); // superseded by a retry/retake or close
-          return;
-        }
-        streamRef.current = stream;
-        setStatus('live');
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(() => {});
-        }
-      })
-      .catch((err) => {
-        if (myRequestId !== requestIdRef.current) return;
-        setError(cameraErrorInfo(err));
-        setStatus('error');
-      });
-  }, [stopStream]);
+      // Ask for HD: the saved photo is a screen-shaped crop of this stream, so a low-res default loses detail.
+      requestCameraStream({ video: { facingMode: mode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+        .catch((err) => {
+          if (err instanceof DOMException && err.name === 'OverconstrainedError') {
+            return requestCameraStream({ video: true, audio: false });
+          }
+          throw err;
+        })
+        .then((stream) => {
+          if (myRequestId !== requestIdRef.current) {
+            stream.getTracks().forEach((t) => t.stop()); // superseded by a retry/retake or close
+            return;
+          }
+          streamRef.current = stream;
+          setStatus('live');
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().catch(() => {});
+          }
+        })
+        .catch((err) => {
+          if (myRequestId !== requestIdRef.current) return;
+          setError(cameraErrorInfo(err));
+          setStatus('error');
+        });
+    },
+    [stopStream, facingMode]
+  );
 
   useEffect(() => {
     if (!open) return;
     document.body.style.overflow = 'hidden';
     setCapturedDataUrl('');
-    startLiveCamera();
+    setFacingMode('user');
+    startLiveCamera('user');
     return () => {
       // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally mutating the live ref, not reading a stale snapshot
       requestIdRef.current++; // invalidate any in-flight request so a late resolve can't leave the camera running
@@ -126,22 +143,49 @@ export default function CameraCaptureModal({
     }
   }, [status]);
 
+  function flipCamera() {
+    const next = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(next);
+    startLiveCamera(next);
+  }
+
   function captureFrame() {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
-    const size = Math.min(video.videoWidth, video.videoHeight);
+    if (!face.canCapture) {
+      // Guidance says the face isn't ready — flash the instruction instead of taking a poor photo.
+      setNudge(true);
+      setTimeout(() => setNudge(false), 1200);
+      return;
+    }
+    // Save exactly what the user sees: the on-screen frame is a cover-crop of the video.
+    const frameW = frameRef.current?.clientWidth || video.videoWidth;
+    const frameH = frameRef.current?.clientHeight || video.videoHeight;
+    const scale = Math.max(frameW / video.videoWidth, frameH / video.videoHeight);
+    const srcW = frameW / scale;
+    const srcH = frameH / scale;
+    const sx = (video.videoWidth - srcW) / 2;
+    const sy = (video.videoHeight - srcH) / 2;
+    const outW = Math.min(720, Math.round(srcW));
+    const outH = Math.round((outW * frameH) / frameW);
     const canvas = document.createElement('canvas');
-    canvas.width = 480;
-    canvas.height = 480;
+    canvas.width = outW;
+    canvas.height = outH;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const sx = (video.videoWidth - size) / 2;
-    const sy = (video.videoHeight - size) / 2;
-    ctx.translate(480, 0);
-    ctx.scale(-1, 1); // mirror to match the live preview
-    ctx.drawImage(video, sx, sy, size, size, 0, 0, 480, 480);
-    setCapturedDataUrl(canvas.toDataURL('image/jpeg', 0.9));
+    if (facingMode === 'user') {
+      ctx.translate(outW, 0);
+      ctx.scale(-1, 1); // mirror to match the live preview, front camera only
+    }
+    ctx.drawImage(video, sx, sy, srcW, srcH, 0, 0, outW, outH);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     stopStream();
+    if (!review) {
+      requestIdRef.current++;
+      onCapture(dataUrl);
+      return;
+    }
+    setCapturedDataUrl(dataUrl);
     setStatus('captured');
   }
 
@@ -161,91 +205,107 @@ export default function CameraCaptureModal({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-      style={{ paddingTop: 'calc(16px + env(safe-area-inset-top, 0px))', paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
-      }}
-    >
-      <div className="w-full max-w-[420px] max-h-full overflow-y-auto rounded-l bg-surface shadow-2xl momentum-scroll">
-        <div className="flex items-center justify-between gap-2 px-5 py-4 border-b border-line">
-          <h3 className="text-[14.5px] tracking-wide m-0">
-            {status === 'error' ? error?.title : status === 'captured' ? 'Use this photo?' : status === 'requesting' ? 'Camera' : heading}
-          </h3>
-          <button
-            aria-label="Close"
-            onClick={handleClose}
-            className="touch-target flex items-center justify-center rounded-full bg-surface-2 text-ink-soft"
-          >
-            <XIcon size={18} />
-          </button>
-        </div>
-
+    <div className="fixed inset-0 z-50 bg-black text-white">
+      {/* The camera frame is the entire screen; everything else floats on top of it. */}
+      <div ref={frameRef} className="absolute inset-0 overflow-hidden">
         {status === 'requesting' && (
-          <div className="flex flex-col items-center px-5 py-10 text-center">
-            <span className="h-7 w-7 rounded-full border-[3px] border-accent border-t-transparent animate-spin" />
-            <p className="mt-3.5 text-sm text-ink-soft">Requesting camera access…</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="h-8 w-8 rounded-full border-[3px] border-primary border-t-transparent animate-spin" />
+            <p className="mt-4 text-sm text-white/70">Requesting camera access…</p>
           </div>
         )}
 
         {status === 'live' && (
           <>
-            <div className="flex flex-col items-center px-5 py-5">
-              <div className="relative h-60 w-60 rounded-full overflow-hidden bg-black">
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover -scale-x-100" />
-                <div className="absolute inset-1.5 rounded-full border-2 border-dashed border-white/55 pointer-events-none" />
-              </div>
-            </div>
-            <div className="flex gap-2.5 px-5 py-4 border-t border-line">
-              <Button variant="secondary" className="flex-1" onClick={handleClose}>
-                Cancel
-              </Button>
-              <Button variant="primary" className="flex-1" onClick={captureFrame}>
-                <CameraIcon size={18} /> Capture
-              </Button>
-            </div>
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={['absolute inset-0 h-full w-full object-cover', facingMode === 'user' ? '-scale-x-100' : ''].join(' ')}
+            />
+            <FaceReadyFrame ready={ready} />
           </>
         )}
 
         {status === 'captured' && (
-          <>
-            <div className="flex flex-col items-center px-5 py-5">
-              {/* Data-URL preview of the just-captured frame, not a remote image. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={capturedDataUrl}
-                alt="Captured selfie"
-                className="h-60 w-60 rounded-full object-cover border-[3px] border-accent"
-              />
-            </div>
-            <div className="flex gap-2.5 px-5 py-4 border-t border-line">
-              <Button variant="secondary" className="flex-1" onClick={startLiveCamera}>
-                <RefreshIcon size={16} /> Retake
-              </Button>
-              <Button variant="primary" className="flex-1" onClick={handleConfirm}>
-                <CheckIcon size={16} /> Use This Photo
-              </Button>
-            </div>
-          </>
+          // Data-URL preview of the just-captured frame; same aspect as the live view.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={capturedDataUrl} alt="Captured selfie" className="absolute inset-0 h-full w-full object-cover" />
         )}
 
         {status === 'error' && error && (
-          <>
-            <div className="px-5 py-5">
-              <Alert level="danger" title={error.title}>
-                {error.message}
-              </Alert>
-            </div>
-            <div className="px-5 py-4 border-t border-line">
-              <Button variant="primary" block onClick={startLiveCamera}>
-                <RefreshIcon size={16} /> Try Again
-              </Button>
-            </div>
-          </>
+          <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
+            <AlertTriangleIcon size={36} className="text-danger mb-3" />
+            <h3 className="text-lg font-bold mb-1.5">{error.title}</h3>
+            <p className="text-sm text-white/70 mb-6 max-w-[320px]">{error.message}</p>
+            <Button variant="primary" onClick={() => startLiveCamera()}>
+              <RefreshIcon size={16} /> Try Again
+            </Button>
+          </div>
         )}
       </div>
+
+      {/* Top overlay: close / title / switch camera, then the live instruction. */}
+      <div
+        className="absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent px-4 pb-6"
+        style={{ paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}
+      >
+        <div className="flex items-center justify-between">
+          <button aria-label="Close scanner" onClick={handleClose} className="flex h-11 min-w-[70px] items-center gap-1.5 text-white text-sm font-semibold">
+            <ChevronLeftIcon size={18} /> Close
+          </button>
+          <span className="font-display font-bold uppercase tracking-wide text-[13px] text-white">{heading}</span>
+          {status === 'live' ? (
+            <button aria-label="Switch camera" onClick={flipCamera} className="flex h-11 w-[70px] items-center justify-end text-white">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm">
+                <RefreshIcon size={20} />
+              </span>
+            </button>
+          ) : (
+            <span className="w-[70px]" aria-hidden />
+          )}
+        </div>
+        {status === 'live' && <FaceGuidanceBanner detector={face.detector} guidance={face.guidance} pulse={nudge} className="mt-3" />}
+      </div>
+
+      {/* Bottom overlay: shutter, or retake / confirm. */}
+      {status === 'live' && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 flex justify-center bg-gradient-to-t from-black/70 to-transparent pt-10"
+          style={{ paddingBottom: 'calc(28px + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <button
+            aria-label="Capture photo"
+            aria-disabled={!face.canCapture}
+            onClick={captureFrame}
+            className={[
+              'flex h-[72px] w-[72px] items-center justify-center rounded-full shadow-2xl active:scale-95 transition',
+              ready ? 'bg-[#22c55e] text-[#06130d] ring-4 ring-[#22c55e]/40' : 'bg-primary text-primary-foreground',
+              face.canCapture ? '' : 'opacity-40'
+            ].join(' ')}
+          >
+            <span className="flex h-[54px] w-[54px] items-center justify-center rounded-full border-2 border-white/40">
+              <CameraIcon size={26} />
+            </span>
+          </button>
+        </div>
+      )}
+
+      {status === 'captured' && (
+        <div
+          className="absolute inset-x-0 bottom-0 z-10 flex gap-2.5 bg-gradient-to-t from-black/80 to-transparent px-5 pt-12"
+          style={{ paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <Button variant="secondary" className="flex-1" onClick={() => startLiveCamera()}>
+            <RefreshIcon size={16} /> Retake
+          </Button>
+          <Button variant="primary" className="flex-1" onClick={handleConfirm}>
+            <CheckIcon size={16} /> Use This Photo
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

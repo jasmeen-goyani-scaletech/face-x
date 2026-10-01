@@ -1,102 +1,49 @@
 'use client';
 
-import { useState } from 'react';
-import VerificationHud from '@/components/admin/VerificationHud';
-import { SearchIcon, UsersIcon } from '@/components/ui/Icons';
-import { formatDate, initialsOf } from '@/lib/format';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import Card from '@/components/ui/Card';
+import { ChevronLeftIcon } from '@/components/ui/Icons';
+import ManualCheckInPanel from '@/components/admin/ManualCheckInPanel';
+import RoleFilterTabs, { type RoleFilter } from '@/components/admin/RoleFilterTabs';
 import { useEventRoster } from '@/lib/roster';
 
+/** Manual check-in without the camera: the same search, photo comparison and approval as the scanner's dialog. */
 export default function AdminSearchPage() {
-  const roster = useEventRoster();
-  const [query, setQuery] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  const q = query.toLowerCase().trim();
-  const results = q
-    ? roster.roster.filter((r) => `${r.firstName} ${r.lastName}`.toLowerCase().includes(q) || r.dob.includes(q) || r.schoolId.toLowerCase().includes(q))
-    : roster.roster;
-
-  const selected = roster.roster.find((r) => r.id === selectedId);
+  const { roster, markPresent } = useEventRoster();
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
+  const scoped = useMemo(() => (roleFilter === 'all' ? roster : roster.filter((r) => r.role === roleFilter)), [roster, roleFilter]);
+  const [notice, setNotice] = useState<string | null>(null);
 
   return (
-    <div>
-      <h1 className="font-display text-2xl uppercase tracking-wide mb-1">Manual Search</h1>
-      <p className="text-[#9fb0a6] text-sm mb-5">Find a registrant by name, date of birth, or school ID.</p>
+    <div className="mx-auto max-w-3xl">
+      <Link href="/admin/event-day" className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-ink-soft no-underline hover:text-ink">
+        <ChevronLeftIcon size={16} /> Back to Event Day
+      </Link>
+      <h1 className="m-0 text-2xl">Manual Search</h1>
+      <p className="m-0 mb-4 mt-1 text-sm text-ink-soft">Find someone by name, team, or registration ID, compare their on-file photo, and check them in.</p>
 
-      <div className="relative mb-4">
-        <SearchIcon size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#6b7a71]" />
-        <input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setSelectedId(null);
-          }}
-          placeholder="Search…"
-          className="w-full rounded-xl border border-[#253029] bg-[#12181f] text-white pl-11 pr-4 py-4 text-base focus:outline-none focus:border-[#22c55e]"
-        />
+      <div className="mb-4">
+        <RoleFilterTabs value={roleFilter} onChange={setRoleFilter} />
       </div>
 
-      {!selected && (
-        <>
-          {results.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-[#2d3a33] p-10 text-center text-[#6b7a71]">
-              <SearchIcon size={32} className="mx-auto mb-3" />
-              No registrants match &ldquo;{query}&rdquo;.
-            </div>
-          ) : (
-            <div className="grid gap-2">
-              {results.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setSelectedId(r.id)}
-                  className="flex items-center gap-3 rounded-xl border border-[#253029] bg-[#12181f] p-3.5 text-left"
-                >
-                  <div className="h-11 w-11 shrink-0 rounded-full bg-[#1c2620] border border-[#2d3a33] flex items-center justify-center font-display font-bold text-[#9fb0a6]">
-                    {initialsOf(r.firstName, r.lastName)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold">{r.firstName} {r.lastName}</div>
-                    <div className="text-[#6b7a71] text-[12.5px]">{formatDate(r.dob)} · {r.schoolId}</div>
-                  </div>
-                  {!r.approved ? (
-                    <Pill tone="danger">Not Cleared</Pill>
-                  ) : r.checkedInAt ? (
-                    <Pill tone="warning">Checked In</Pill>
-                  ) : r.flags.length ? (
-                    <Pill tone="warning">Flagged</Pill>
-                  ) : (
-                    <Pill tone="success">Verified</Pill>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-
-      {selected && (
-        <div>
-          <button onClick={() => setSelectedId(null)} className="text-[#9fb0a6] text-sm font-semibold mb-4">
-            ← Back to results
-          </button>
-          <VerificationHud entry={selected} method="Manual" onConfirm={roster.markPresent} />
+      {notice && (
+        <div role="status" className="mb-4 rounded-s bg-success px-4 py-3 text-sm font-bold text-white">
+          {notice}
         </div>
       )}
 
-      {!selected && results.length === 0 && !query && (
-        <div className="mt-4 flex items-center gap-2 text-[#6b7a71] text-[12.5px]">
-          <UsersIcon size={14} /> Start typing to search the event roster.
-        </div>
-      )}
+      <Card>
+        <ManualCheckInPanel
+          roster={scoped}
+          onConfirm={(id) => {
+            const entry = roster.find((r) => r.id === id);
+            markPresent(id, 'Manual', false);
+            if (entry) setNotice(`Access Granted: ${entry.firstName} ${entry.lastName}`);
+            setTimeout(() => setNotice(null), 2500);
+          }}
+        />
+      </Card>
     </div>
   );
-}
-
-function Pill({ tone, children }: { tone: 'success' | 'warning' | 'danger'; children: React.ReactNode }) {
-  const classes = {
-    success: 'bg-[#0f2a1a] text-[#4ade80] border-[#1f5c38]',
-    warning: 'bg-[#241d0d] text-[#e3ac4a] border-[#4d3c14]',
-    danger: 'bg-[#2a1414] text-[#f87171] border-[#5c2323]'
-  }[tone];
-  return <span className={['shrink-0 rounded-full border px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wide', classes].join(' ')}>{children}</span>;
 }

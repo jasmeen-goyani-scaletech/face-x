@@ -1,0 +1,57 @@
+<!doctype html>
+<!--
+  Standalone "Payment Coming Soon" page for hosting outside the app (e.g. Strapi public folder or any
+  static host). Set NEXT_PUBLIC_PAYMENT_URL to this page's URL. The app sends
+  ?registrationId=&returnUrl=; the button sends the user back to returnUrl with status=pending.
+  Set ALLOWED_RETURN_ORIGINS below to the app's real origin(s) — the button stays hidden for any other
+  returnUrl, so this page can't be used as an open redirect.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Online Payments Coming Soon</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@600&family=Public+Sans:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root { --paper:#f5f6f2; --surface:#fff; --ink:#16202b; --ink-soft:#57626b; --line:#dce1d8; --accent:#1f6f4d; --accent-soft:#e3f0e8; --accent-ink:#fff; }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper:#10161a; --surface:#171f24; --ink:#edf1ee; --ink-soft:#a4afa9; --line:#2a343a; --accent:#3fae7c; --accent-soft:#16332a; --accent-ink:#06130d; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px; background:var(--paper); color:var(--ink); font-family:'Public Sans',-apple-system,'Segoe UI',sans-serif; }
+    .card { width:100%; max-width:480px; background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:32px 24px; text-align:center; }
+    .icon { width:64px; height:64px; margin:0 auto 20px; border-radius:50%; background:var(--accent-soft); color:var(--accent); display:flex; align-items:center; justify-content:center; }
+    h1 { margin:0 0 8px; font-family:'Oswald','Arial Narrow',sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:.02em; font-size:24px; }
+    p { margin:0 0 24px; color:var(--ink-soft); line-height:1.55; }
+    a.btn { display:block; padding:14px 20px; border-radius:12px; background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:14px; text-decoration:none; }
+    a.btn[hidden] { display:none; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="icon" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+    </div>
+    <h1>Online Payments Coming Soon</h1>
+    <p>Online payment integration will be introduced soon. Your registration details have been saved, and we will notify you once payment processing opens.</p>
+    <a id="return" class="btn" href="#" hidden>Return to Registration</a>
+  </main>
+  <script>
+    // Origins allowed to receive the user back. Replace with the app's production origin(s).
+    var ALLOWED_RETURN_ORIGINS = ['http://localhost:3000'];
+    var q = new URLSearchParams(location.search);
+    try {
+      var target = new URL(q.get('returnUrl'));
+      if (ALLOWED_RETURN_ORIGINS.indexOf(target.origin) !== -1) {
+        target.search = '';
+        target.searchParams.set('status', 'pending');
+        if (q.get('registrationId')) target.searchParams.set('registrationId', q.get('registrationId'));
+        var a = document.getElementById('return');
+        a.href = target.toString();
+        a.hidden = false;
+      }
+    } catch (e) { /* no valid returnUrl: leave the button hidden */ }
+  </script>
+</body>
+</html>

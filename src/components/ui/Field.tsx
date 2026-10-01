@@ -1,60 +1,34 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes } from 'react';
+import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from 'react';
+import FormFieldWrapper, { fieldAria, fieldControlClass, fieldStateClass } from './FormFieldWrapper';
 
-interface FieldShellProps {
+interface BaseFieldProps {
   label: string;
-  htmlFor: string;
+  /** Shows "(optional)" instead of the required `*`. */
   optional?: boolean;
-  error?: string;
-  children: React.ReactNode;
+  /** Explanation in an (i) popover next to the label. */
+  tooltip?: ReactNode;
+  hint?: ReactNode;
+  error?: string | null;
 }
 
-export function FieldShell({ label, htmlFor, optional, error, children }: FieldShellProps) {
+interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement>, BaseFieldProps {}
+
+export function TextField({ label, optional, tooltip, hint, error, id, className = '', ...rest }: TextFieldProps) {
   return (
-    <div className="flex flex-col gap-1.5 mb-4">
-      <label htmlFor={htmlFor} className="text-[12.5px] font-semibold text-ink">
-        {label}
-        {optional ? (
-          <span className="ml-1.5 font-medium text-ink-faint normal-case text-[11.5px]">(optional)</span>
-        ) : (
-          <span className="text-danger ml-0.5">*</span>
-        )}
-      </label>
-      {children}
-      {error && <div className="text-[12px] font-semibold text-danger">{error}</div>}
-    </div>
+    <FormFieldWrapper id={id!} label={label} marker={optional ? 'optional' : 'required'} tooltip={tooltip} hint={hint} error={error}>
+      <input id={id} className={[fieldControlClass, fieldStateClass(!!error), className].join(' ')} {...fieldAria(id!, error, hint)} {...rest} />
+    </FormFieldWrapper>
   );
 }
 
-const inputClass =
-  'w-full rounded-s border px-3 py-2.5 text-[14.5px] bg-surface text-ink font-body ' +
-  'focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent';
+interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement>, BaseFieldProps {}
 
-interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
-  label: string;
-  optional?: boolean;
-  error?: string;
-}
-
-export function TextField({ label, optional, error, id, className = '', ...rest }: TextFieldProps) {
+export function SelectField({ label, optional, tooltip, hint, error, id, className = '', children, ...rest }: SelectFieldProps) {
   return (
-    <FieldShell label={label} htmlFor={id!} optional={optional} error={error}>
-      <input id={id} className={[inputClass, error ? 'border-danger' : 'border-line-strong', className].join(' ')} {...rest} />
-    </FieldShell>
-  );
-}
-
-interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label: string;
-  optional?: boolean;
-  error?: string;
-}
-
-export function SelectField({ label, optional, error, id, className = '', children, ...rest }: SelectFieldProps) {
-  return (
-    <FieldShell label={label} htmlFor={id!} optional={optional} error={error}>
-      <select id={id} className={[inputClass, error ? 'border-danger' : 'border-line-strong', className].join(' ')} {...rest}>
+    <FormFieldWrapper id={id!} label={label} marker={optional ? 'optional' : 'required'} tooltip={tooltip} hint={hint} error={error}>
+      <select id={id} className={[fieldControlClass, fieldStateClass(!!error), className].join(' ')} {...fieldAria(id!, error, hint)} {...rest}>
         {children}
       </select>
-    </FieldShell>
+    </FormFieldWrapper>
   );
 }

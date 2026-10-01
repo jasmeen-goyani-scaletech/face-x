@@ -1,13 +1,12 @@
 'use client';
 
-import { useState } from 'react';
-import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
-import Alert from '@/components/ui/Alert';
-import UploadField from '@/components/ui/UploadField';
-import SelfieField from '@/components/camera/SelfieField';
-import { ChevronLeftIcon, ChevronRightIcon } from '@/components/ui/Icons';
-import type { PlayerRegistration } from '@/lib/types';
+import MergedPhotoAndDocsStep from '@/components/registration/MergedPhotoAndDocsStep';
+import { PLAYER_DOCUMENTS, playerDocument, type PlayerDocumentId } from '@/lib/playerDocuments';
+import { uploadStepErrors } from '@/lib/uploadStepValidation';
+import { useFieldErrors } from '@/lib/useFieldErrors';
+import type { PlayerRegistration, UploadedFile } from '@/lib/types';
+
+type Update = PlayerRegistration | ((prev: PlayerRegistration) => PlayerRegistration);
 
 export default function DocumentsStep({
   reg,
@@ -16,61 +15,45 @@ export default function DocumentsStep({
   onBack
 }: {
   reg: PlayerRegistration;
-  onChange: (next: PlayerRegistration) => void;
+  onChange: (next: Update) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
-  const [showAlert, setShowAlert] = useState(false);
-  const documentsMissing = !reg.documents.profilePhoto.uploaded || !reg.documents.birthCertificateOrPassport.uploaded;
+  const photo = reg.documents.profilePhoto;
+  const { errors, order } = uploadStepErrors(
+    { id: 'profilePhoto', uploaded: photo.uploaded },
+    PLAYER_DOCUMENTS.map((d) => ({ id: d.id, label: d.label, required: d.required, uploaded: playerDocument(reg, d.id).uploaded }))
+  );
+  const { error, submit } = useFieldErrors(errors, order);
 
-  function validateAndNext() {
-    if (documentsMissing) {
-      setShowAlert(true);
-      return;
-    }
-    setShowAlert(false);
-    onNext();
+  // Functional updates: uploads finish at different times, and each must build on the latest registration.
+  function setDocument(id: 'profilePhoto' | PlayerDocumentId, file: UploadedFile) {
+    onChange((prev) => ({ ...prev, documents: { ...prev.documents, [id]: file } }));
   }
 
   return (
-    <Card>
-      <h2 className="text-xl mb-1">Face-X Identification & Documents</h2>
-      <p className="text-ink-soft mb-5">
-        We&rsquo;ll use your selfie for event-day face-scan check-in. Our staff reviews documents manually — this isn&rsquo;t instant.
-      </p>
-
-      <div className="mb-6">
-        <SelfieField
-          label="Face-X identification photo"
-          dataUrl={reg.documents.profilePhoto.dataUrl || ''}
-          onCapture={(dataUrl) =>
-            onChange({
-              ...reg,
-              documents: {
-                ...reg.documents,
-                profilePhoto: { uploaded: true, fileName: 'selfie.jpg', dataUrl, review: 'not_submitted' }
-              }
-            })
-          }
-        />
-      </div>
-
-      <UploadField
-        label="Birth Certificate / Passport"
-        value={reg.documents.birthCertificateOrPassport}
-        onChange={(next) => onChange({ ...reg, documents: { ...reg.documents, birthCertificateOrPassport: next } })}
-      />
-
-      {showAlert && documentsMissing && <div className="mt-4"><Alert level="danger" title="Missing items">Take your Face-X photo and upload a birth certificate or passport copy before continuing.</Alert></div>}
-
-      <div className="flex justify-between mt-5">
-        <Button variant="secondary" onClick={onBack}>
-          <ChevronLeftIcon size={16} /> Back
-        </Button>
-        <Button variant="primary" onClick={validateAndNext}>
-          Continue <ChevronRightIcon size={16} />
-        </Button>
-      </div>
-    </Card>
+    <MergedPhotoAndDocsStep
+      title="Photo & Documents"
+      info="We’ll use your selfie for event-day face-scan check-in. Our staff reviews documents manually — this isn’t instant. Birth Certificate, School Transcript and a Kid ID / Government Photo ID are required; School ID is optional."
+      photoConfig={{
+        id: 'profilePhoto',
+        label: 'Face-X identification photo',
+        file: photo,
+        error: error('profilePhoto'),
+        onCapture: (dataUrl) =>
+          setDocument('profilePhoto', { uploaded: true, fileName: 'selfie.jpg', dataUrl, uploadedAt: Date.now(), review: 'not_submitted' })
+      }}
+      documentList={PLAYER_DOCUMENTS.map((doc) => ({
+        documentId: doc.id,
+        label: doc.label,
+        hint: doc.hint,
+        required: doc.required,
+        value: playerDocument(reg, doc.id),
+        onChange: (file) => setDocument(doc.id, file),
+        error: error(doc.id)
+      }))}
+      onBack={onBack}
+      onNext={() => submit() && onNext()}
+    />
   );
 }

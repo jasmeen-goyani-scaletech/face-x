@@ -31,14 +31,14 @@ export default function PlayerDashboardPage() {
 
   return (
     <main>
-      <Topbar eyebrow={`Registration #${reg.id}`} />
+      <Topbar />
       <div className="mx-auto max-w-[560px] px-5 pt-10 pb-16">
         <h1 className="text-2xl mb-6">Hi {reg.basic.firstName}!</h1>
 
         <Card className="mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-[12px] tracking-wide">Tournament Details</h3>
-            <CalendarIcon size={17} className="text-accent-strong" />
+            <CalendarIcon size={17} className="text-primary-strong" />
           </div>
           <div className="text-sm font-semibold mb-1">{EVENT_INFO.name}</div>
           <div className="text-[12.5px] text-ink-soft">

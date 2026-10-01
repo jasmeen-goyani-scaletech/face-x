@@ -3,6 +3,7 @@ import type { Config } from 'tailwindcss';
 const config: Config = {
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
   theme: {
+    screens: { xs: '480px', sm: '640px', md: '768px', lg: '1024px', xl: '1280px', '2xl': '1536px' },
     extend: {
       colors: {
         paper: 'var(--paper)',
@@ -13,6 +14,12 @@ const config: Config = {
         'ink-faint': 'var(--ink-faint)',
         line: 'var(--line)',
         'line-strong': 'var(--line-strong)',
+        primary: 'var(--primary)',
+        'primary-foreground': 'var(--primary-foreground)',
+        'primary-hover': 'var(--primary-hover)',
+        'primary-light': 'var(--primary-light)',
+        'primary-strong': 'var(--primary-strong)',
+        // Older names; aliases of the primary tokens in globals.css.
         accent: 'var(--accent)',
         'accent-ink': 'var(--accent-ink)',
         'accent-soft': 'var(--accent-soft)',
@@ -25,6 +32,8 @@ const config: Config = {
         'warning-soft': 'var(--warning-soft)',
         danger: 'var(--danger)',
         'danger-soft': 'var(--danger-soft)',
+        'danger-tint': 'var(--danger-tint)',
+        'field-error': 'var(--field-error)',
         info: 'var(--info)',
         'info-soft': 'var(--info-soft)'
       },

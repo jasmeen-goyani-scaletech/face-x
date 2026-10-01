@@ -1,56 +1,51 @@
 'use client';
 
-import { useState } from 'react';
 import Card from '@/components/ui/Card';
-import Button from '@/components/ui/Button';
+import StepActions from '@/components/ui/StepActions';
 import Alert from '@/components/ui/Alert';
 import { TextField, SelectField } from '@/components/ui/Field';
-import { ChevronRightIcon } from '@/components/ui/Icons';
-import { calcDivision } from '@/lib/age';
-import { TEAM_DIRECTORY } from '@/lib/teams';
+import { dobBounds, dobError } from '@/lib/age';
+import PlayerAgeCalculatorField from './PlayerAgeCalculatorField';
+import { getTeamDirectory } from '@/lib/teams';
+import { MSG, compact, validatePersonBasics } from '@/lib/validation';
+import { useFieldErrors } from '@/lib/useFieldErrors';
 import type { PlayerRegistration } from '@/lib/types';
+
+type BasicField = 'firstName' | 'lastName' | 'dob' | 'phone' | 'email' | 'team';
+
+// Same order as on screen: submit focuses the first invalid one. Keys equal the input ids.
+const FIELD_ORDER: BasicField[] = ['firstName', 'lastName', 'dob', 'phone', 'email', 'team'];
 
 export default function BasicInfoStep({
   reg,
   onChange,
   onNext,
-  isMinor,
-  age
+  isMinor
 }: {
   reg: PlayerRegistration;
   onChange: (next: PlayerRegistration) => void;
   onNext: () => void;
   isMinor: boolean;
-  age: number | null;
 }) {
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const division = calcDivision(reg.basic.dob);
+  const b = reg.basic;
+  const dobIssue = b.dob ? dobError(b.dob) : null;
+  const { min: dobMin, max: dobMax } = dobBounds();
   const locked = !!reg.invite;
+
+  const { error, blur, submit } = useFieldErrors<BasicField>(
+    {
+      ...validatePersonBasics(b),
+      ...compact({ dob: b.dob ? dobError(b.dob) : MSG.dobRequired, team: reg.teamId ? null : MSG.team })
+    },
+    FIELD_ORDER
+  );
 
   function set<K extends keyof PlayerRegistration['basic']>(key: K, value: PlayerRegistration['basic'][K]) {
     onChange({ ...reg, basic: { ...reg.basic, [key]: value } });
   }
 
-  function clearError(key: string, valid: boolean) {
-    if (!valid) return;
-    setErrors((prev) => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }
-
   function validateAndNext() {
-    const b = reg.basic;
-    const e: Record<string, string> = {};
-    if (!b.firstName.trim()) e.firstName = 'Required';
-    if (!b.lastName.trim()) e.lastName = 'Required';
-    if (!b.dob) e.dob = 'Required';
-    if (!b.phone.trim() || b.phone.replace(/\D/g, '').length < 7) e.phone = 'Enter a valid phone number';
-    if (!b.email.trim() || !b.email.includes('@')) e.email = 'Enter a valid email';
-    setErrors(e);
-    if (Object.keys(e).length === 0) onNext();
+    if (submit()) onNext();
   }
 
   return (
@@ -68,95 +63,82 @@ export default function BasicInfoStep({
         <TextField
           id="firstName"
           label="First Name"
-          value={reg.basic.firstName}
-          error={errors.firstName}
-          onChange={(e) => {
-            set('firstName', e.target.value);
-            clearError('firstName', !!e.target.value.trim());
-          }}
+          autoComplete="given-name"
+          value={b.firstName}
+          error={error('firstName')}
+          onBlur={blur('firstName')}
+          onChange={(e) => set('firstName', e.target.value)}
         />
         <TextField
           id="lastName"
           label="Last Name"
-          value={reg.basic.lastName}
-          error={errors.lastName}
-          onChange={(e) => {
-            set('lastName', e.target.value);
-            clearError('lastName', !!e.target.value.trim());
-          }}
+          autoComplete="family-name"
+          value={b.lastName}
+          error={error('lastName')}
+          onBlur={blur('lastName')}
+          onChange={(e) => set('lastName', e.target.value)}
         />
         <TextField
           id="dob"
           label="Date of Birth"
           type="date"
-          value={reg.basic.dob}
-          error={errors.dob}
-          onChange={(e) => {
-            set('dob', e.target.value);
-            clearError('dob', !!e.target.value);
-          }}
+          min={dobMin}
+          max={dobMax}
+          value={b.dob}
+          error={error('dob')}
+          onBlur={blur('dob')}
+          onChange={(e) => set('dob', e.target.value)}
         />
         <TextField
           id="phone"
           label="Mobile Number"
           type="tel"
-          placeholder="(555) 555-0100"
-          value={reg.basic.phone}
-          error={errors.phone}
-          onChange={(e) => {
-            set('phone', e.target.value);
-            clearError('phone', e.target.value.replace(/\D/g, '').length >= 7);
-          }}
+          autoComplete="tel"
+          placeholder="555-019-2831"
+          value={b.phone}
+          error={error('phone')}
+          onBlur={blur('phone')}
+          onChange={(e) => set('phone', e.target.value)}
         />
       </div>
       <TextField
         id="email"
         label="Email"
         type="email"
-        value={reg.basic.email}
-        error={errors.email}
-        onChange={(e) => {
-          set('email', e.target.value);
-          clearError('email', e.target.value.includes('@'));
-        }}
+        autoComplete="email"
+        placeholder="name@example.com"
+        value={b.email}
+        error={error('email')}
+        onBlur={blur('email')}
+        onChange={(e) => set('email', e.target.value)}
       />
 
-      {reg.basic.dob && (
-        <div className="rounded-m bg-accent-soft px-4 py-3 mb-4 flex items-center justify-between text-sm">
-          <span className="text-accent-strong font-semibold">
-            Age {age} · Division {division}
-          </span>
-          <span className="text-[11.5px] text-accent-strong opacity-80">Calculated automatically</span>
-        </div>
-      )}
+      <PlayerAgeCalculatorField dob={b.dob} />
 
-      {isMinor === false && reg.basic.dob && (
+      {isMinor === false && b.dob && !dobIssue && (
         <p className="text-[12.5px] text-ink-faint -mt-2 mb-4">
-          Player is 18 or older — the guardian/emergency contact step will be skipped.
+          Player is 18 or older — guardian details and the consent waiver won&rsquo;t be required.
         </p>
       )}
 
       <SelectField
         id="team"
         label="Team & Club"
-        optional
         value={reg.teamId}
+        error={error('team')}
         disabled={locked}
+        onBlur={blur('team')}
         onChange={(e) => onChange({ ...reg, teamId: e.target.value })}
       >
-        <option value="">Select a team (or assign later)</option>
-        {TEAM_DIRECTORY.map((t) => (
+        <option value="">Select a team...</option>
+        {getTeamDirectory().map((t) => (
           <option key={t.teamId} value={t.teamId}>
             {t.teamName} — {t.club}
           </option>
         ))}
       </SelectField>
 
-      <div className="flex justify-end mt-2">
-        <Button variant="primary" onClick={validateAndNext}>
-          Continue <ChevronRightIcon size={16} />
-        </Button>
-      </div>
+      <StepActions onNext={validateAndNext} />
     </Card>
   );
 }

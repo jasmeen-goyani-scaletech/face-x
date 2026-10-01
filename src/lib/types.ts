@@ -6,6 +6,8 @@ export interface UploadedFile {
   dataUrl?: string;
   review: ReviewStatus;
   reason?: string;
+  size?: number; // bytes, as uploaded
+  uploadedAt?: number; // epoch ms
 }
 
 export function emptyFile(): UploadedFile {
@@ -20,8 +22,6 @@ export interface ConsentInfo {
   required: boolean; // true when player is a minor
   method: 'inline' | 'link' | null;
   status: 'not_started' | 'sent' | 'completed';
-  guardianName: string;
-  relationship: string;
   signedName: string;
   agree: boolean;
   sentAt: number | null;
@@ -33,8 +33,6 @@ export function emptyConsent(required: boolean): ConsentInfo {
     required,
     method: null,
     status: 'not_started',
-    guardianName: '',
-    relationship: '',
     signedName: '',
     agree: false,
     sentAt: null,
@@ -45,13 +43,12 @@ export function emptyConsent(required: boolean): ConsentInfo {
 export interface PaymentInfo {
   status: 'not_started' | 'processing' | 'success' | 'failed' | 'interrupted';
   amount: number;
-  cardLast4: string;
   failReason: string;
   paidAt: number | null;
 }
 
 export function emptyPayment(amount: number): PaymentInfo {
-  return { status: 'not_started', amount, cardLast4: '', failReason: '', paidAt: null };
+  return { status: 'not_started', amount, failReason: '', paidAt: null };
 }
 
 export interface TeamInvite {
@@ -69,18 +66,23 @@ export interface PlayerBasic {
   dob: string; // yyyy-mm-dd
 }
 
+/** The one place guardian details live (key kept as `emergency` so saved drafts still load). */
 export interface EmergencyContact {
   guardianName: string;
   relationship: string;
   guardianPhone: string;
   guardianEmail: string;
-  emergencyContactName: string;
-  emergencyContactPhone: string;
+  /** Family members / guests attending alongside the player. Absent on drafts saved before this existed. */
+  guestCount?: number;
 }
 
 export interface PlayerDocuments {
   profilePhoto: UploadedFile; // FaceScan identification selfie — camera capture only
-  birthCertificateOrPassport: UploadedFile;
+  birthCertificate: UploadedFile; // required
+  // Optional supporting documents. Registrations saved before these existed lack them — read via playerDocument().
+  schoolId: UploadedFile;
+  schoolTranscript: UploadedFile;
+  californiaKidId: UploadedFile;
 }
 
 export interface PlayerRegistration {
@@ -101,9 +103,8 @@ export interface PlayerRegistration {
 export type PlayerStep =
   | 'role'
   | 'basic'
-  | 'emergency'
   | 'documents'
-  | 'consent'
+  | 'guardianConsent'
   | 'payment'
   | 'complete';
 
@@ -121,12 +122,17 @@ export function freshPlayerRegistration(invite: TeamInvite | null): PlayerRegist
       relationship: '',
       guardianPhone: '',
       guardianEmail: '',
-      emergencyContactName: '',
-      emergencyContactPhone: ''
+      guestCount: 0
     },
     invite,
     teamId: invite?.teamId ?? '',
-    documents: { profilePhoto: emptyFile(), birthCertificateOrPassport: emptyFile() },
+    documents: {
+      profilePhoto: emptyFile(),
+      birthCertificate: emptyFile(),
+      schoolId: emptyFile(),
+      schoolTranscript: emptyFile(),
+      californiaKidId: emptyFile()
+    },
     consent: emptyConsent(true),
     payment: emptyPayment(REGISTRATION_FEE),
     step: 'basic'
@@ -156,20 +162,24 @@ export interface CoachRegistration {
   status: RegistrationStatus;
   createdAt: number | null;
   basic: { firstName: string; lastName: string; email: string; phone: string };
+  /** Live selfie (camera capture only). Absent on registrations saved before coaches had a photo step. */
+  livePhoto?: UploadedFile;
   certificates: CoachCertificates;
   ab506Acknowledged: boolean;
   adminStatus: CoachAdminStatus;
   rejectionReason: string;
-  team: CoachTeam | null;
+  invite: TeamInvite | null; // the tournament team this coach registered under, via a team-specific link
+  team: CoachTeam | null; // a team this coach creates post-approval, for players to join
   step: CoachStep;
 }
 
-export function freshCoachRegistration(): CoachRegistration {
+export function freshCoachRegistration(invite: TeamInvite | null = null): CoachRegistration {
   return {
     id: null,
     status: 'not_started',
     createdAt: null,
     basic: { firstName: '', lastName: '', email: '', phone: '' },
+    livePhoto: emptyFile(),
     certificates: {
       firstAidCpr: emptyFile(),
       yalfTackle: emptyFile(),
@@ -178,6 +188,7 @@ export function freshCoachRegistration(): CoachRegistration {
     ab506Acknowledged: false,
     adminStatus: 'pending',
     rejectionReason: '',
+    invite,
     team: null,
     step: 'basic'
   };
@@ -197,7 +208,7 @@ export interface StaffRegistration {
   createdAt: number | null;
   basic: { firstName: string; lastName: string; email: string; phone: string };
   role: StaffRole | null;
-  clubAffiliation: string;
+  invite: TeamInvite | null; // the tournament team this staff member registered under, via a team-specific link
   livePhoto: UploadedFile; // camera capture only
   backgroundCheckRef: UploadedFile;
   safeSportUpload: UploadedFile;
@@ -206,14 +217,14 @@ export interface StaffRegistration {
   step: StaffStep;
 }
 
-export function freshStaffRegistration(): StaffRegistration {
+export function freshStaffRegistration(invite: TeamInvite | null = null): StaffRegistration {
   return {
     id: null,
     status: 'not_started',
     createdAt: null,
     basic: { firstName: '', lastName: '', email: '', phone: '' },
     role: null,
-    clubAffiliation: '',
+    invite,
     livePhoto: emptyFile(),
     backgroundCheckRef: emptyFile(),
     safeSportUpload: emptyFile(),

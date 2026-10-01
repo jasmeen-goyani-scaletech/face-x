@@ -30,3 +30,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# copied from node_modules by scripts/copy-mediapipe.mjs
+/public/mediapipe/
