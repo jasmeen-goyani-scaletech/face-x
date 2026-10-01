@@ -103,7 +103,7 @@ function CoachWizard() {
 
   return (
     <main>
-      <Topbar eyebrow="Coach registration" />
+      <Topbar role="coach" eyebrow="Coach registration" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         {reg.status !== 'submitted' && <ModernStepper steps={STEPS} current={step} />}
 

@@ -15,7 +15,7 @@ export function FieldError({ id, children, className = '' }: { id?: string; chil
 /** Classes for the control inside a FormFieldWrapper. Focus colour is set here, not in the base, so the two never fight. */
 export const fieldControlClass =
   'w-full rounded-s border px-3 py-2.5 text-[14.5px] bg-surface text-ink font-body focus:outline-none focus:ring-2 ' +
-  'transition-colors';
+  'transition-[border-color,box-shadow] duration-150 hover:border-ink-faint focus:shadow-sm motion-reduce:transition-none';
 
 export function fieldStateClass(invalid: boolean): string {
   return invalid
@@ -97,8 +97,11 @@ export default function FormFieldWrapper({
         ].join(' ')}
       >
         <div className="overflow-hidden">
-          <p aria-hidden={!open} className="m-0 text-sm font-medium leading-5 text-field-error">
-            {open ? error : lastError.current}
+          <p aria-hidden={!open} className="m-0 flex items-start gap-1.5 text-sm font-medium leading-5 text-field-error">
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="mt-[3px] h-3.5 w-3.5 shrink-0" fill="currentColor">
+              <path d="M10 1.5a8.5 8.5 0 100 17 8.5 8.5 0 000-17zM9 6a1 1 0 112 0v4.5a1 1 0 11-2 0V6zm1 8.75a1.1 1.1 0 110-2.2 1.1 1.1 0 010 2.2z" />
+            </svg>
+            <span>{open ? error : lastError.current}</span>
           </p>
         </div>
       </div>

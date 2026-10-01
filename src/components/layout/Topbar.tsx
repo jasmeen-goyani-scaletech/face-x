@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useLogoHref } from '@/lib/activeRole';
+import { useLogoHref, type RegistrationRole } from '@/lib/activeRole';
+import RoleBadge from '@/components/ui/RoleBadge';
 
-export default function Topbar({ eyebrow }: { eyebrow?: string }) {
+export default function Topbar({ eyebrow, role }: { eyebrow?: string; role?: RegistrationRole }) {
   // Once a registration is under way the logo returns to that role's page, not the landing/role-picker screens.
   const homeHref = useLogoHref();
   return (
@@ -24,6 +25,7 @@ export default function Topbar({ eyebrow }: { eyebrow?: string }) {
           )}
         </span>
       </Link>
+      {role && <RoleBadge role={role} className="ml-auto shrink-0" />}
     </div>
   );
 }

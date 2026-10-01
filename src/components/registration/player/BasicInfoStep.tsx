@@ -3,7 +3,8 @@
 import Card from '@/components/ui/Card';
 import StepActions from '@/components/ui/StepActions';
 import Alert from '@/components/ui/Alert';
-import { TextField, SelectField } from '@/components/ui/Field';
+import { TextField } from '@/components/ui/Field';
+import LockedTeamDropdown from '@/components/registration/LockedTeamDropdown';
 import { dobBounds, dobError } from '@/lib/age';
 import PlayerAgeCalculatorField from './PlayerAgeCalculatorField';
 import { getTeamDirectory } from '@/lib/teams';
@@ -30,7 +31,6 @@ export default function BasicInfoStep({
   const b = reg.basic;
   const dobIssue = b.dob ? dobError(b.dob) : null;
   const { min: dobMin, max: dobMax } = dobBounds();
-  const locked = !!reg.invite;
 
   const { error, blur, submit } = useFieldErrors<BasicField>(
     {
@@ -121,22 +121,14 @@ export default function BasicInfoStep({
         </p>
       )}
 
-      <SelectField
-        id="team"
-        label="Team & Club"
+      <LockedTeamDropdown
         value={reg.teamId}
         error={error('team')}
-        disabled={locked}
+        lockedTeam={reg.invite}
+        teams={getTeamDirectory()}
         onBlur={blur('team')}
-        onChange={(e) => onChange({ ...reg, teamId: e.target.value })}
-      >
-        <option value="">Select a team...</option>
-        {getTeamDirectory().map((t) => (
-          <option key={t.teamId} value={t.teamId}>
-            {t.teamName} — {t.club}
-          </option>
-        ))}
-      </SelectField>
+        onChange={(teamId) => onChange({ ...reg, teamId })}
+      />
 
       <StepActions onNext={validateAndNext} />
     </Card>

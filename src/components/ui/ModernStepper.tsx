@@ -81,6 +81,21 @@ export default function ModernStepper({ steps, current }: { steps: Step[]; curre
         })}
       </ol>
 
+      {/* Overall completion: fills as the wizard advances. */}
+      <div
+        role="progressbar"
+        aria-label="Registration completion"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(((idx + 1) / steps.length) * 100)}
+        className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-line"
+      >
+        <span
+          className="block h-full rounded-full bg-primary transition-[width] duration-500 ease-out motion-reduce:transition-none"
+          style={{ width: `${((idx + 1) / steps.length) * 100}%` }}
+        />
+      </div>
+
       {/* Phones: the current step's title, once, under the bar. */}
       <p className="m-0 mt-3 flex items-baseline justify-center gap-2 text-center sm:hidden">
         <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">

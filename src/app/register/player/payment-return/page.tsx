@@ -106,7 +106,7 @@ function PaymentReturn() {
 export default function PaymentReturnPage() {
   return (
     <main>
-      <Topbar eyebrow="Registration payment" />
+      <Topbar role="player" eyebrow="Registration payment" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         <Suspense fallback={null}>
           <PaymentReturn />

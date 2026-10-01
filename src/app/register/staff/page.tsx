@@ -94,7 +94,7 @@ function StaffWizard() {
 
   return (
     <main>
-      <Topbar eyebrow="Staff registration" />
+      <Topbar role="staff" eyebrow="Staff registration" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         {reg.status !== 'submitted' && <ModernStepper steps={STEPS} current={step} />}
 

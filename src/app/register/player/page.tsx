@@ -76,7 +76,7 @@ function PlayerWizard() {
 
   return (
     <main>
-      <Topbar eyebrow={reg.status === 'draft' ? 'Draft in progress' : reg.status === 'submitted' ? undefined : 'New registration'} />
+      <Topbar role="player" eyebrow={reg.status === 'draft' ? 'Draft in progress' : reg.status === 'submitted' ? undefined : 'New registration'} />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         {step !== 'complete' && <ModernStepper steps={RAIL} current={step} />}
 
