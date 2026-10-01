@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Topbar from '@/components/layout/Topbar';
+import RegistrationHeader from '@/components/layout/RegistrationHeader';
 import { useRememberActiveRole } from '@/lib/activeRole';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -103,7 +103,7 @@ function CoachWizard() {
 
   return (
     <main>
-      <Topbar role="coach" eyebrow="Coach registration" />
+      <RegistrationHeader role="COACH" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         {reg.status !== 'submitted' && <ModernStepper steps={STEPS} current={step} />}
 

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Topbar from '@/components/layout/Topbar';
+import RegistrationHeader from '@/components/layout/RegistrationHeader';
 import { useRememberActiveRole } from '@/lib/activeRole';
 import ModernStepper from '@/components/ui/ModernStepper';
 import { useLocalStorage } from '@/lib/storage';
@@ -76,7 +76,7 @@ function PlayerWizard() {
 
   return (
     <main>
-      <Topbar role="player" eyebrow={reg.status === 'draft' ? 'Draft in progress' : reg.status === 'submitted' ? undefined : 'New registration'} />
+      <RegistrationHeader role="PLAYER" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         {step !== 'complete' && <ModernStepper steps={RAIL} current={step} />}
 

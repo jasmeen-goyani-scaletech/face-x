@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Topbar from '@/components/layout/Topbar';
+import RegistrationHeader from '@/components/layout/RegistrationHeader';
 import { useRememberActiveRole } from '@/lib/activeRole';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -94,7 +94,7 @@ function StaffWizard() {
 
   return (
     <main>
-      <Topbar role="staff" eyebrow="Staff registration" />
+      <RegistrationHeader role="STAFF" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         {reg.status !== 'submitted' && <ModernStepper steps={STEPS} current={step} />}
 

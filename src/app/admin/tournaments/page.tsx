@@ -6,6 +6,8 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import { TextField } from '@/components/ui/Field';
+import AdminPagination from '@/components/admin/AdminPagination';
+import { usePagination } from '@/lib/usePagination';
 import { PlusIcon, TrophyIcon, ChevronRightIcon } from '@/components/ui/Icons';
 import { getDataClient } from '@/lib/data/client';
 import type { Tournament } from '@/lib/data/types';
@@ -19,6 +21,8 @@ const STATUS_KIND: Record<Tournament['status'], 'neutral' | 'success' | 'warning
   closed: 'warning'
 };
 
+const NO_TOURNAMENTS: Tournament[] = [];
+
 export default function TournamentsPage() {
   const [tournaments, setTournaments] = useState<Tournament[] | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -31,6 +35,8 @@ export default function TournamentsPage() {
     }),
     ['name', 'date'] as const
   );
+
+  const pager = usePagination(tournaments ?? NO_TOURNAMENTS);
 
   useEffect(() => {
     getDataClient().tournaments.list().then(setTournaments);
@@ -94,7 +100,7 @@ export default function TournamentsPage() {
       )}
 
       <div className="flex flex-col gap-2.5">
-        {tournaments?.map((t) => (
+        {pager.pageItems.map((t) => (
           <Link key={t.id} href={`/admin/tournaments/${t.id}`} className="no-underline">
             <Card className="flex items-center justify-between gap-3 hover:border-line-strong">
               <div>
@@ -112,6 +118,13 @@ export default function TournamentsPage() {
           </Link>
         ))}
       </div>
+      <AdminPagination
+        total={pager.total}
+        page={pager.page}
+        pageSize={pager.pageSize}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
     </div>
   );
 }

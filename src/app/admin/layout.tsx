@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import AdminSidebar from '@/components/admin/AdminSidebar';
+import AdminCollapsibleSidenav from '@/components/admin/AdminCollapsibleSidenav';
+import OfflineRosterSyncEngine from '@/components/admin/OfflineRosterSyncEngine';
+import { useAdminSidenav } from '@/lib/useAdminSidenav';
 import { ToastProvider } from '@/components/ui/Toast';
 
 const ADMIN_SESSION_KEY = 'facex-admin-authed';
@@ -14,6 +16,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [authed, setAuthed] = useState(false);
   const [input, setInput] = useState('');
   const [error, setError] = useState(false);
+  const { collapsed, toggle: toggleSidenav } = useAdminSidenav();
 
   useEffect(() => {
     try {
@@ -82,17 +85,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <ToastProvider>
-      <div className="flex min-h-screen flex-col sm:flex-row">
-        <AdminSidebar />
-        <main
-          className="min-w-0 flex-1 px-4 py-5 sm:px-8 sm:py-8"
-          style={{
-            paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))'
-          }}
+      <div className="min-h-screen">
+        <AdminCollapsibleSidenav collapsed={collapsed} onToggle={toggleSidenav} />
+        {/* The rail is fixed from md up, so the content column makes room for it and follows it as it collapses. */}
+        <div
+          className={[
+            'min-w-0 transition-[margin] duration-300 ease-out motion-reduce:transition-none',
+            collapsed ? 'md:ml-20' : 'md:ml-64'
+          ].join(' ')}
         >
-          {children}
-        </main>
+          <main
+            className="px-4 py-5 sm:px-8 sm:py-8"
+            style={{
+              paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))'
+            }}
+          >
+            {children}
+          </main>
+        </div>
       </div>
+      <OfflineRosterSyncEngine />
     </ToastProvider>
   );
 }

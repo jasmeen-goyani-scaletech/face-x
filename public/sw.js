@@ -18,12 +18,25 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Background Sync: when connectivity returns (even if the tab was backgrounded), tell any open app window to flush its
+// offline check-in queue. The queue lives in IndexedDB and is sent by the page, which also covers browsers without this event.
+self.addEventListener('sync', (event) => {
+  if (event.tag !== 'facex-sync-checkins') return;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+      clients.forEach((c) => c.postMessage({ type: 'facex-sync-checkins' }));
+    })
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // API responses are live data (e.g. the Admin sync reconcile), never cache-first.
+  if (url.pathname.startsWith('/api/')) return;
 
   // Navigations: network-first so users get fresh screens online, with an
   // offline fallback to whatever shell page is cached.

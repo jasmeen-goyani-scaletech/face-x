@@ -9,6 +9,8 @@ import { useEventRoster } from '@/lib/roster';
 import { formatTime, initialsOf } from '@/lib/format';
 import { EVENT_INFO } from '@/lib/seed';
 import { entryAccessState } from '@/lib/accessCompliance';
+import AdminPagination from '@/components/admin/AdminPagination';
+import { usePagination } from '@/lib/usePagination';
 import RoleFilterTabs, { type RoleFilter } from '@/components/admin/RoleFilterTabs';
 
 export default function EventDayPage() {
@@ -23,6 +25,9 @@ export default function EventDayPage() {
   const eligible = filtered.filter((r) => entryAccessState(r) === 'enabled');
   const checkedIn = eligible.filter((r) => r.checkedInAt).sort((a, b) => (b.checkedInAt ?? 0) - (a.checkedInAt ?? 0));
   const notCheckedIn = eligible.filter((r) => !r.checkedInAt);
+
+  const checkedInPager = usePagination(checkedIn, roleFilter);
+  const notCheckedInPager = usePagination(notCheckedIn, roleFilter);
 
   return (
     <div>
@@ -63,7 +68,7 @@ export default function EventDayPage() {
             <Card className="text-center py-8 text-ink-faint text-sm">No one checked in yet.</Card>
           ) : (
             <div className="flex flex-col gap-2">
-              {checkedIn.map((r) => (
+              {checkedInPager.pageItems.map((r) => (
                 <Card key={r.id} className="flex items-center gap-3 py-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success-soft text-success font-bold text-[12.5px]">
                     {initialsOf(r.firstName, r.lastName)}
@@ -84,6 +89,7 @@ export default function EventDayPage() {
               ))}
             </div>
           )}
+          <AdminPagination total={checkedInPager.total} page={checkedInPager.page} pageSize={checkedInPager.pageSize} onPageChange={checkedInPager.setPage} onPageSizeChange={checkedInPager.setPageSize} noun="people" />
         </div>
 
         <div>
@@ -92,7 +98,7 @@ export default function EventDayPage() {
             <Card className="text-center py-8 text-ink-faint text-sm">Everyone eligible has checked in.</Card>
           ) : (
             <div className="flex flex-col gap-2">
-              {notCheckedIn.map((r) => (
+              {notCheckedInPager.pageItems.map((r) => (
                 <Card key={r.id} className="flex items-center gap-3 py-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-soft font-bold text-[12.5px]">
                     {initialsOf(r.firstName, r.lastName)}
@@ -108,6 +114,7 @@ export default function EventDayPage() {
               ))}
             </div>
           )}
+          <AdminPagination total={notCheckedInPager.total} page={notCheckedInPager.page} pageSize={notCheckedInPager.pageSize} onPageChange={notCheckedInPager.setPage} onPageSizeChange={notCheckedInPager.setPageSize} noun="people" />
         </div>
       </div>
     </div>

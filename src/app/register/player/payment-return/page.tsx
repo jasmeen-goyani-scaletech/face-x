@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Topbar from '@/components/layout/Topbar';
+import RegistrationHeader from '@/components/layout/RegistrationHeader';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { AlertTriangleIcon } from '@/components/ui/Icons';
@@ -106,7 +106,7 @@ function PaymentReturn() {
 export default function PaymentReturnPage() {
   return (
     <main>
-      <Topbar role="player" eyebrow="Registration payment" />
+      <RegistrationHeader role="PLAYER" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         <Suspense fallback={null}>
           <PaymentReturn />

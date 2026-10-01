@@ -16,6 +16,8 @@ export interface RosterEntry {
   division: string;
   /** The person's own mobile. Empty when none is on file (a young player may not have one). */
   phone: string;
+  /** Contact email when one is on file; searchable offline. */
+  email?: string;
   /** A minor's parent / guardian mobile. Empty for adults and when none is on file. */
   parentPhone: string;
   /** The team's id (not just its name), so a coach's roster can be matched to exactly one team. */
@@ -54,6 +56,7 @@ export function normalizeRosterEntry(r: Partial<RosterEntry>): RosterEntry {
     teamName: r.teamName ?? '',
     division: r.division ?? '',
     phone: r.phone ?? '',
+    email: r.email ?? '',
     parentPhone: r.parentPhone ?? '',
     teamId: r.teamId ?? '',
     jerseyNumber: r.jerseyNumber ?? '',

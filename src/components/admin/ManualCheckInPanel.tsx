@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
+import { useOfflineRosterSearch } from '@/lib/offline/useOfflineRosterSearch';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import { AlertTriangleIcon, ChevronLeftIcon, SearchIcon, UsersIcon } from '@/components/ui/Icons';
@@ -52,11 +53,8 @@ export default function ManualCheckInPanel({
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const results = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) return roster;
-    return roster.filter((r) => [`${r.firstName} ${r.lastName}`, r.teamName, r.schoolId].some((field) => field.toLowerCase().includes(q)));
-  }, [roster, query]);
+  // Searches the IndexedDB roster cache (name, email, id, team), so it works with no connection.
+  const results = useOfflineRosterSearch(query, roster);
 
   const selected = roster.find((r) => r.id === selectedId) ?? null;
 

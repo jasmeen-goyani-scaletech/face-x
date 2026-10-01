@@ -6,12 +6,16 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Chip from '@/components/ui/Chip';
 import { TextField, SelectField } from '@/components/ui/Field';
+import AdminPagination from '@/components/admin/AdminPagination';
+import { usePagination } from '@/lib/usePagination';
 import { PlusIcon, UsersIcon, ChevronRightIcon } from '@/components/ui/Icons';
 import { getDataClient } from '@/lib/data/client';
 import type { Team, Tournament } from '@/lib/data/types';
 import { genId } from '@/lib/format';
 import { compact } from '@/lib/validation';
 import { useFieldErrors } from '@/lib/useFieldErrors';
+
+const NO_TEAMS: Team[] = [];
 
 export default function TeamsPage() {
   const [teams, setTeams] = useState<Team[] | null>(null);
@@ -25,6 +29,8 @@ export default function TeamsPage() {
     }),
     ['tournamentId', 'teamName'] as const
   );
+
+  const pager = usePagination(teams ?? NO_TEAMS);
 
   async function reload() {
     const client = getDataClient();
@@ -129,7 +135,7 @@ export default function TeamsPage() {
       )}
 
       <div className="flex flex-col gap-2.5">
-        {teams?.map((t) => (
+        {pager.pageItems.map((t) => (
           <Link key={t.id} href={`/admin/teams/${t.id}`} className="no-underline">
             <Card className="flex items-center justify-between gap-3 hover:border-line-strong">
               <div>
@@ -146,6 +152,13 @@ export default function TeamsPage() {
           </Link>
         ))}
       </div>
+      <AdminPagination
+        total={pager.total}
+        page={pager.page}
+        pageSize={pager.pageSize}
+        onPageChange={pager.setPage}
+        onPageSizeChange={pager.setPageSize}
+      />
     </div>
   );
 }

@@ -2,9 +2,9 @@ import type { RegistrationRole } from '@/lib/activeRole';
 
 /** Per-role colour coding, shared by the top bar, the role selector and the portal. Built from theme tokens only. */
 export const ROLE_TONE: Record<RegistrationRole, { label: string; badge: string; dot: string }> = {
-  player: { label: 'Player', badge: 'bg-primary-light text-primary-strong border-primary/25', dot: 'bg-primary' },
-  coach: { label: 'Coach', badge: 'bg-info-soft text-info border-info/25', dot: 'bg-info' },
-  staff: { label: 'Staff', badge: 'bg-gold-soft text-gold border-gold/30', dot: 'bg-gold' }
+  player: { label: 'Player', badge: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-primary-light dark:text-primary-strong dark:border-primary/25', dot: 'bg-emerald-600' },
+  coach: { label: 'Coach', badge: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-info-soft dark:text-info dark:border-info/25', dot: 'bg-blue-600' },
+  staff: { label: 'Staff', badge: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-gold-soft dark:text-gold dark:border-gold/30', dot: 'bg-amber-600' }
 };
 
 export default function RoleBadge({ role, className = '' }: { role: RegistrationRole; className?: string }) {

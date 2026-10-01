@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon, UsersIcon } from '@/components/ui/Icons';
+import AdminPagination from '@/components/admin/AdminPagination';
+import { usePagination } from '@/lib/usePagination';
+import { ChevronRightIcon, SearchIcon, UsersIcon } from '@/components/ui/Icons';
 import { useEventRoster } from '@/lib/roster';
 import { initialsOf } from '@/lib/format';
 import type { RosterEntry } from '@/lib/seed';
-
-const PAGE_SIZE = 8;
 
 type StatusFilter = 'all' | 'pending' | 'approved' | 'flagged' | 'disabled';
 
@@ -35,7 +35,6 @@ export default function RosterListPage({
   const { roster } = useEventRoster();
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     let list = roster.filter((r) => r.role === role);
@@ -52,13 +51,9 @@ export default function RosterListPage({
     return list;
   }, [roster, role, query, statusFilter]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [query, statusFilter]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // Search and filter state live above; paging resets to page 1 only when they change.
+  const pager = usePagination(filtered, `${query}|${statusFilter}`);
+  const pageItems = pager.pageItems;
 
   return (
     <div>
@@ -122,27 +117,13 @@ export default function RosterListPage({
             ))}
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="flex items-center gap-1 text-sm font-semibold text-ink-soft disabled:opacity-40"
-              >
-                <ChevronLeftIcon size={16} /> Prev
-              </button>
-              <span className="text-[12.5px] text-ink-faint">
-                Page {currentPage} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="flex items-center gap-1 text-sm font-semibold text-ink-soft disabled:opacity-40"
-              >
-                Next <ChevronRightIcon size={16} />
-              </button>
-            </div>
-          )}
+          <AdminPagination
+            total={pager.total}
+            page={pager.page}
+            pageSize={pager.pageSize}
+            onPageChange={pager.setPage}
+            onPageSizeChange={pager.setPageSize}
+          />
         </>
       )}
     </div>

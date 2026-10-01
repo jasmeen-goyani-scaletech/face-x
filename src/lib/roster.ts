@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo } from 'react';
+import { cacheRoster } from './offline/rosterCache';
+import { enqueueCheckIn, SERVER_CHECKINS_EVENT, type ServerCheckIn } from './offline/syncQueue';
 import { useLocalStorage } from './storage';
 import { seedRoster, normalizeRosterEntry, upgradeRosterEntry, type RosterEntry } from './seed';
 import { calcAge, calcDivision } from './age';
@@ -67,6 +69,7 @@ function selfEntryFromPlayer(reg: PlayerRegistration): RosterEntry | null {
     guardianName: (calcAge(reg.basic.dob) ?? 0) < 18 ? reg.emergency.guardianName : '',
     division: calcDivision(reg.basic.dob) || '',
     phone: reg.basic.phone,
+    email: reg.basic.email,
     parentPhone: (calcAge(reg.basic.dob) ?? 0) < 18 ? reg.emergency.guardianPhone : '',
     photoUrl: reg.documents.profilePhoto.dataUrl || '',
     approved: reg.payment.status === 'success',
@@ -218,10 +221,40 @@ export function useEventRoster() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep a complete, indexed copy of the roster in IndexedDB so search and check-in keep working with no network.
+  useEffect(() => {
+    void cacheRoster(roster);
+  }, [roster]);
+
+  // After a sync, the server's check-ins are the clean source: fill in anyone it recorded that this device doesn't show yet.
+  useEffect(() => {
+    function onServerCheckIns(e: Event) {
+      const checkIns = (e as CustomEvent<ServerCheckIn[]>).detail;
+      setRoster((prev) => {
+        const byPerson = new Map(checkIns.map((c) => [c.personId, c]));
+        let changed = false;
+        const next = prev.map((r) => {
+          const c = byPerson.get(r.id);
+          if (!c || r.checkedInAt) return r;
+          changed = true;
+          return { ...r, checkedInAt: c.checkedInAt, checkedInMethod: c.method, checkedInOverride: c.override };
+        });
+        return changed ? next : prev;
+      });
+    }
+    window.addEventListener(SERVER_CHECKINS_EVENT, onServerCheckIns);
+    return () => window.removeEventListener(SERVER_CHECKINS_EVENT, onServerCheckIns);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function markPresent(id: string, method: string, override: boolean) {
+    const at = Date.now();
+    const person = roster.find((r) => r.id === id);
+    // Optimistic: the roster (and so the UI) updates immediately; the queue entry is what carries it to Admin later.
     setRoster((prev) =>
-      prev.map((r) => (r.id === id ? { ...normalizeRosterEntry(r), checkedInAt: Date.now(), checkedInMethod: method, checkedInOverride: override } : r))
+      prev.map((r) => (r.id === id ? { ...normalizeRosterEntry(r), checkedInAt: at, checkedInMethod: method, checkedInOverride: override } : r))
     );
+    if (person) void enqueueCheckIn(person, method, override, at);
   }
 
   function setDisabled(id: string, disabled: boolean) {
