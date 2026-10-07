@@ -53,7 +53,7 @@ function ContactActions({ player }: { player: RosterEntry }) {
         </a>
       ) : (
         <span className={disabledClass} aria-disabled="true" title="No phone number on file for the player">
-          <PhoneIcon size={15} /> No player phone
+          <PhoneIcon size={15} /> Call Player
         </span>
       )}
       {options.minor &&
@@ -63,7 +63,7 @@ function ContactActions({ player }: { player: RosterEntry }) {
           </a>
         ) : (
           <span className={disabledClass} aria-disabled="true" title="No phone number on file for a parent or guardian">
-            <PhoneIcon size={15} /> No parent phone
+            <PhoneIcon size={15} /> Call Parent
           </span>
         ))}
     </div>
