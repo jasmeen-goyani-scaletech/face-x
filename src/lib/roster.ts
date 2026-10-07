@@ -147,20 +147,23 @@ function selfEntryFromStaff(reg: StaffRegistration): RosterEntry | null {
  * scanner reflects the same journey a visitor just walked through in /register. Self-entries always
  * appear once submitted (even mid-review) so the field-admin override flow has something real to show. */
 export function useEventRoster() {
-  const [rawRoster, setRoster] = useLocalStorage<RosterEntry[]>(ROSTER_KEY, seedRoster());
+  const [rawRoster, setRoster, hydrated] = useLocalStorage<RosterEntry[]>(ROSTER_KEY, seedRoster());
 
   // Normalized at render time (not just in an effect) so even the very first render is safe
   // against a roster saved by an older schema version — see normalizeRosterEntry.
   const roster = useMemo(() => rawRoster.map(normalizeRosterEntry), [rawRoster]);
 
   useEffect(() => {
+    // Until the saved roster has been read, `rawRoster` is a throwaway seed with fresh random ids. Upgrading and saving that
+    // would overwrite the real roster on every mount and change every id, so admin detail pages couldn't find their person.
+    if (!hydrated) return;
     const directory = getTeamDirectory();
     const sample = new Map(seedRoster().map((s) => [s.schoolId, s]));
     const patched = rawRoster.map((r) => upgradeRosterEntry(r, sample.get(r.schoolId ?? ''), directory));
     // Only write back when something actually changed, so this settles after one pass.
     if (patched.some((p, i) => JSON.stringify(p) !== JSON.stringify(rawRoster[i]))) setRoster(patched);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawRoster]);
+  }, [rawRoster, hydrated]);
 
   useEffect(() => {
     try {
