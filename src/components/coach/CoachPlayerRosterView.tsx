@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import Dialog from '@/components/ui/Dialog';
-import { ChevronLeftIcon, MessageIcon, PhoneIcon, SearchIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
+import { ChevronLeftIcon, PhoneIcon, SearchIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
 import { CoachGateCard, useCoachTeam } from './useCoachTeam';
 import { calcAge } from '@/lib/age';
 import { contactOptions } from '@/lib/contactOptions';
@@ -83,8 +83,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function PlayerDetailDialog({ player, onClose }: { player: RosterEntry | null; onClose: () => void }) {
   const minor = player ? isMinor(player) : true;
   const age = player ? calcAge(player.dob) : null;
-  const options = player ? contactOptions(player) : null;
-  const number = (minor ? options?.parentPhone : options?.playerPhone) ?? null;
 
   return (
     <Dialog open={!!player} onClose={onClose} labelledBy="player-detail-title" size="md" initialFocus="button[data-close]">
@@ -134,16 +132,7 @@ function PlayerDetailDialog({ player, onClose }: { player: RosterEntry | null; o
               {minor && <Field label="Parent / guardian">{player.guardianName}</Field>}
               <Field label="Phone">{minor ? player.parentPhone : player.phone}</Field>
             </dl>
-            {number && (
-              <div className="flex gap-2">
-                <a href={`tel:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-                  <PhoneIcon size={15} /> Call
-                </a>
-                <a href={`sms:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-                  <MessageIcon size={15} /> SMS
-                </a>
-              </div>
-            )}
+            <ContactActions player={player} />
           </section>
 
           <div className="flex justify-end">
