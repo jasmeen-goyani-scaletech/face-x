@@ -37,28 +37,35 @@ function Avatar({ player, size }: { player: RosterEntry; size: 'md' | 'lg' }) {
   );
 }
 
-/** Call / text the number on file. Without one, the buttons say so instead of doing nothing. */
+/**
+ * Call Player / Call Parent, from the numbers on file. A button with no number says so instead of doing nothing.
+ * Call Parent is for minors only; an adult has no parent to call, so Call Player takes the full width.
+ */
 function ContactActions({ player }: { player: RosterEntry }) {
   const options = contactOptions(player);
-  // Parent first (that's who this screen is for), the player's own number if there is no parent number.
-  const who = options.parentPhone ? 'Parent' : 'Player';
-  const number = options.parentPhone ?? options.playerPhone;
+  const callClass = `${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`;
+  const disabledClass = `${actionBase} cursor-not-allowed border-line bg-surface-2 text-ink-faint`;
   return (
     <div className="flex gap-2">
-      {number ? (
-        <>
-          <a href={`tel:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-            <PhoneIcon size={15} /> Call {who}
-          </a>
-          <a href={`sms:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-            <MessageIcon size={15} /> SMS
-          </a>
-        </>
+      {options.playerPhone ? (
+        <a href={`tel:${options.playerPhone}`} className={callClass}>
+          <PhoneIcon size={15} /> Call Player
+        </a>
       ) : (
-        <span className={`${actionBase} cursor-not-allowed border-line bg-surface-2 text-ink-faint`} aria-disabled="true">
-          <PhoneIcon size={15} /> No phone on file
+        <span className={disabledClass} aria-disabled="true" title="No phone number on file for the player">
+          <PhoneIcon size={15} /> No player phone
         </span>
       )}
+      {options.minor &&
+        (options.parentPhone ? (
+          <a href={`tel:${options.parentPhone}`} className={callClass}>
+            <PhoneIcon size={15} /> Call Parent
+          </a>
+        ) : (
+          <span className={disabledClass} aria-disabled="true" title="No phone number on file for a parent or guardian">
+            <PhoneIcon size={15} /> No parent phone
+          </span>
+        ))}
     </div>
   );
 }
