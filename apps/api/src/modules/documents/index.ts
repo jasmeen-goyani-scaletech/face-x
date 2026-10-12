@@ -16,6 +16,7 @@ export function createDocumentsModule(
   storage: DocumentServiceDeps['storage'],
   readiness: ReadinessTrigger,
   notifications?: NotificationPublisher,
+  faceEnrollment?: DocumentServiceDeps['faceEnrollment'],
 ): Router {
   return createDocumentRouter(
     createDocumentController(
@@ -24,6 +25,7 @@ export function createDocumentsModule(
         storage,
         readiness,
         notifications,
+        faceEnrollment,
       }),
     ),
     {

@@ -37,6 +37,8 @@ import { DOCUMENT_KEYS, DOCUMENT_TYPE_BY_KEY, hasRejectedDocument, toUploadedFil
 import { uploadPlayerDocument } from './uploads';
 
 const GUARDIAN_CONSENT = 'GUARDIAN_CONSENT';
+/** Optional: lets the player's approved photo be enrolled for face-scan check-in. Never needed to register. */
+const BIOMETRIC_CONSENT = 'BIOMETRIC_CONSENT';
 /** Statuses a family can still be working on from the wizard (payment may be outstanding). */
 const IN_PROGRESS: ApiRegistrationStatus[] = ['DRAFT', 'SUBMITTED', 'PAYMENT_PENDING'];
 
@@ -186,6 +188,13 @@ export interface PlayerWizard {
   locked: boolean;
   documents: Record<PlayerDocumentKey, UploadedFile>;
   consentWording: ApiConsentVersion | null;
+  /** The face-scan consent wording, once the league has published it (null: the option is not offered). */
+  faceConsentWording: ApiConsentVersion | null;
+  /** The current face-scan consent was already accepted for this registration. */
+  faceConsentRecorded: boolean;
+  /** The family ticked the box; it is recorded when the guardian step is saved. */
+  faceConsentChecked: boolean;
+  setFaceConsentChecked: (checked: boolean) => void;
   consents: ApiConsentStatus | null;
   payment: ApiPaymentSummary | null;
   notice: WizardNotice | null;
@@ -219,6 +228,8 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   const [apiDocuments, setApiDocuments] = useState<ApiDocument[]>([]);
   const [previews, setPreviews] = useState<Partial<Record<PlayerDocumentKey, string>>>({});
   const [consentWording, setConsentWording] = useState<ApiConsentVersion | null>(null);
+  const [faceConsentWording, setFaceConsentWording] = useState<ApiConsentVersion | null>(null);
+  const [faceConsentChecked, setFaceConsentChecked] = useState(false);
   const [consents, setConsents] = useState<ApiConsentStatus | null>(null);
   const [payment, setPayment] = useState<ApiPaymentSummary | null>(null);
   const [notice, setNotice] = useState<WizardNotice | null>(null);
@@ -237,6 +248,10 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   previewsRef.current = previews;
   const consentWordingRef = useRef(consentWording);
   consentWordingRef.current = consentWording;
+  const faceWordingRef = useRef(faceConsentWording);
+  faceWordingRef.current = faceConsentWording;
+  const faceCheckedRef = useRef(faceConsentChecked);
+  faceCheckedRef.current = faceConsentChecked;
 
   const age = calcAge(reg.basic.dob);
   const isMinor = age === null || age < 18;
@@ -283,6 +298,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
         if (cancelled) return;
         setEvents(eventList);
         setConsentWording(wording.find((c) => c.code === GUARDIAN_CONSENT) ?? null);
+        setFaceConsentWording(wording.find((c) => c.code === BIOMETRIC_CONSENT) ?? null);
 
         let inviteState: InviteState = { status: 'none' };
         if (options.inviteCode) {
@@ -573,6 +589,25 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
         await recordConsent(registrationId, { consentId: shown.id, signedName: form.consent.signedName.trim(), accepted: true });
         await hydrate(registrationId);
       }
+
+      // The optional face-scan consent: only when the box was ticked and the current wording is not already accepted. Declining is
+      // simply not recording it; the player is then checked in by hand. It is recorded under the same signature as the consent above.
+      const faceShown = faceWordingRef.current;
+      if (faceShown && faceCheckedRef.current) {
+        const latest = (await hydrate(registrationId)).consents;
+        const accepted = latest.records.some((r) => r.code === BIOMETRIC_CONSENT && r.currentVersion);
+        if (!accepted) {
+          const signedName = regRef.current.consent.signedName.trim();
+          if (signedName.length < 2) throw new Error('Type your full name to sign the face-scan consent.');
+          try {
+            await recordConsent(registrationId, { consentId: faceShown.id, signedName, accepted: true });
+          } catch (e) {
+            // Accepted in another tab a moment ago: nothing is lost.
+            if (!hasCode(e, 'CONSENT_ALREADY_RECORDED')) throw e;
+          }
+          await hydrate(registrationId);
+        }
+      }
       goTo('documents');
     });
   }, [run, createDraft, hydrate, goTo]);
@@ -658,6 +693,10 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     locked,
     documents,
     consentWording,
+    faceConsentWording,
+    faceConsentRecorded: consents?.records.some((r) => r.code === BIOMETRIC_CONSENT && r.currentVersion) ?? false,
+    faceConsentChecked,
+    setFaceConsentChecked,
     consents,
     payment,
     notice,

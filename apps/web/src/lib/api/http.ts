@@ -7,6 +7,8 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   /** Serialised as JSON. */
   body?: unknown;
+  /** Sent as the whole request body, with the image's own content type (the face scan). Instead of `body`. */
+  image?: Blob;
   /** Query string values; `undefined` entries are dropped. */
   query?: Record<string, string | undefined>;
   /** false for the few endpoints that need no signed-in user (login, register). Default true. */
@@ -26,7 +28,8 @@ export const REQUEST_TIMEOUT_MS = 30_000;
 
 async function send(path: string, opts: RequestOptions, token: string | null): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (opts.image) headers['Content-Type'] = opts.image.type;
+  else if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   // The caller's own signal (a screen going away) and the timeout both cancel the request.
   const timeout = new AbortController();
@@ -36,7 +39,7 @@ async function send(path: string, opts: RequestOptions, token: string | null): P
     return await fetch(url(path, opts.query), {
       method: opts.method ?? 'GET',
       headers,
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      body: opts.image ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body)),
       // The refresh cookie only rides on the auth endpoints, but login/logout must be able to set and clear it.
       credentials: 'include',
       cache: 'no-store',

@@ -14,7 +14,9 @@ const deviceFields = {
     .max(64)
     .regex(/^[A-Za-z0-9_-]+$/, 'may only contain letters, digits, - and _')
     .optional(),
-  deviceCheckedInAt: z.iso.datetime({ offset: true, message: 'must be a date and time' }).optional(),
+  deviceCheckedInAt: z.iso
+    .datetime({ offset: true, message: 'must be a date and time' })
+    .optional(),
 };
 
 /**
@@ -22,9 +24,16 @@ const deviceFields = {
  * `clientRequestId` is generated once per attempt and resent unchanged on a retry (idempotency).
  */
 export const checkInBodySchema = z.discriminatedUnion('method', [
-  z.object({ method: z.literal('FACE'), scanId: uuid, clientRequestId: uuid, ...deviceFields }).strict(),
   z
-    .object({ method: z.literal('MANUAL'), registrationId: uuid, clientRequestId: uuid, ...deviceFields })
+    .object({ method: z.literal('FACE'), scanId: uuid, clientRequestId: uuid, ...deviceFields })
+    .strict(),
+  z
+    .object({
+      method: z.literal('MANUAL'),
+      registrationId: uuid,
+      clientRequestId: uuid,
+      ...deviceFields,
+    })
     .strict(),
 ]);
 export type CheckInBody = z.infer<typeof checkInBodySchema>;

@@ -8,7 +8,9 @@ import { consentRequirement } from './requirements';
 import type { RecordConsentBody } from './schema';
 import {
   ALL_REGISTRATION_CONSENT_CODES,
+  BIOMETRIC_CONSENT,
   CONSENT_CODES_FOR,
+  recordableConsentCodes,
   type ConsentRecordDto,
   type ConsentStatusDto,
   type ConsentVersionDto,
@@ -53,9 +55,19 @@ const isMinor = (r: ConsentRegistration) =>
   r.playerDateOfBirth !== null &&
   isMinorForEvent(r.playerDateOfBirth, r.eventStartsAt, r.eventTimezone);
 
+/** What happens to a player's face after their guardian accepts the face-scan consent (see FaceService.enrollAfterConsent). Must not throw. */
+export interface BiometricConsentHook {
+  afterBiometricConsent(input: {
+    registrationId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<unknown>;
+}
+
 export function createConsentService(
   repository: ConsentRepository,
   readiness: ReadinessTrigger,
+  faceEnrollment?: BiometricConsentHook,
 ): ConsentService {
   return {
     async listCurrent() {
@@ -91,7 +103,7 @@ export function createConsentService(
 
       const consent = await repository.findEffectiveById(body.consentId);
       if (!consent) throw AppError.notFound('CONSENT_NOT_FOUND', 'Consent not found');
-      if (!(CONSENT_CODES_FOR[reg.registrantType] as readonly string[]).includes(consent.code)) {
+      if (!recordableConsentCodes(reg.registrantType).includes(consent.code)) {
         throw new AppError(
           422,
           'CONSENT_NOT_APPLICABLE',
@@ -119,8 +131,12 @@ export function createConsentService(
 
         // Only a player's registration has guardians; a coach or staff member signs for themself.
         const signer = reg.playerId ? await r.findSigner(reg.playerId, ctx.userId) : null;
-        // A minor cannot consent for themself: a linked guardian with an account must.
-        if (consent.code === 'GUARDIAN_CONSENT' && isMinor(reg) && !signer) {
+        // A minor cannot consent for themself: a linked guardian with an account must (for their face as much as for the event).
+        if (
+          (consent.code === 'GUARDIAN_CONSENT' || consent.code === BIOMETRIC_CONSENT) &&
+          isMinor(reg) &&
+          !signer
+        ) {
           throw AppError.forbidden(
             'A parent or guardian must accept this consent',
             'GUARDIAN_REQUIRED_TO_CONSENT',
@@ -165,6 +181,12 @@ export function createConsentService(
 
       // Recording consent can complete the registration's requirements: re-evaluate after it has committed.
       await readiness.afterChange(registrationId);
+      // A photo that was approved before the guardian consented has been waiting for this: enroll it now. The consent stands whatever happens.
+      if (consent.code === BIOMETRIC_CONSENT) {
+        await faceEnrollment
+          ?.afterBiometricConsent({ registrationId, actorUserId: ctx.userId, meta })
+          .catch(() => undefined);
+      }
 
       const records = await repository.listRecords(registrationId);
       const created = records.find((x) => x.id === recordId);

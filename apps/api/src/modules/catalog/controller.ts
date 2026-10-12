@@ -19,7 +19,10 @@ export function createCatalogController(service: CatalogService): CatalogControl
         res.json({ success: true, data: await service.listEvents() });
         return;
       }
-      res.json({ success: true, data: await service.listEventsPage({ page: page ?? 1, pageSize: pageSize ?? 25 }) });
+      res.json({
+        success: true,
+        data: await service.listEventsPage({ page: page ?? 1, pageSize: pageSize ?? 25 }),
+      });
     },
     getEvent: async (req, res) => {
       res.json({ success: true, data: await service.getEvent(uuid.parse(req.params.eventId)) });

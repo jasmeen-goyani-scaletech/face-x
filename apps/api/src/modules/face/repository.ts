@@ -47,6 +47,10 @@ export interface FaceRepository {
   countProfiles(playerId: string): Promise<number>;
 
   findEnrollmentSource(playerId: string, documentId: string): Promise<EnrollmentSource | null>;
+  /** The newest approved, uploaded profile photo of a PLAYER registration, with the player it is for (null when there is none yet). */
+  findApprovedPhotoOfRegistration(
+    registrationId: string,
+  ): Promise<{ playerId: string; documentId: string } | null>;
   /** The consent record for `code` at its CURRENT published version, for this registration. */
   findCurrentConsentRecord(registrationId: string, code: string): Promise<string | null>;
 
@@ -140,6 +144,20 @@ function build(q: Queryable, run: FaceRepository['transaction']): FaceRepository
         [playerId],
       );
       return rows[0]?.n ?? 0;
+    },
+
+    async findApprovedPhotoOfRegistration(registrationId) {
+      const { rows } = await q.query<{ player_id: string; id: string }>(
+        `select r.player_id, d.id
+           from public.documents d
+           join public.registrations r on r.id = d.registration_id
+          where r.id = $1 and r.registrant_type = 'PLAYER' and r.player_id is not null
+            and d.document_type = 'PROFILE_PHOTO' and d.status = 'APPROVED' and d.uploaded_at is not null
+          order by d.created_at desc
+          limit 1`,
+        [registrationId],
+      );
+      return rows[0] ? { playerId: rows[0].player_id, documentId: rows[0].id } : null;
     },
 
     async findEnrollmentSource(playerId, documentId) {

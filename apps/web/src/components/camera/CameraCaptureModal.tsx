@@ -158,7 +158,8 @@ export default function CameraCaptureModal({
       setTimeout(() => setNudge(false), 1200);
       return;
     }
-    // Save exactly what the user sees: the on-screen frame is a cover-crop of the video.
+    // Save the cover-crop of the video the frame shows, in natural orientation: a front camera is previewed mirrored (like a mirror),
+    // but the photo is kept the way the world is, which is how a face is compared at the door (the scanner sends the same orientation).
     const frameW = frameRef.current?.clientWidth || video.videoWidth;
     const frameH = frameRef.current?.clientHeight || video.videoHeight;
     const scale = Math.max(frameW / video.videoWidth, frameH / video.videoHeight);
@@ -173,10 +174,6 @@ export default function CameraCaptureModal({
     canvas.height = outH;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    if (facingMode === 'user') {
-      ctx.translate(outW, 0);
-      ctx.scale(-1, 1); // mirror to match the live preview, front camera only
-    }
     ctx.drawImage(video, sx, sy, srcW, srcH, 0, 0, outW, outH);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     stopStream();
@@ -232,7 +229,12 @@ export default function CameraCaptureModal({
         {status === 'captured' && (
           // Data-URL preview of the just-captured frame; same aspect as the live view.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={capturedDataUrl} alt="Captured selfie" className="absolute inset-0 h-full w-full object-cover" />
+          <img
+            src={capturedDataUrl}
+            alt="Captured selfie"
+            // The saved photo is natural; the review still looks like the mirror preview the person just used.
+            className={['absolute inset-0 h-full w-full object-cover', facingMode === 'user' ? '-scale-x-100' : ''].join(' ')}
+          />
         )}
 
         {status === 'error' && error && (

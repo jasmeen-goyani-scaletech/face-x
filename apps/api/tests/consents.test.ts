@@ -2,6 +2,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../src/infrastructure/database/database';
 import { as, childBody, createChild, createEvent, createOrg, createTeam } from './helpers/fixtures';
+import { recordableConsentCodes } from '../src/modules/consents/types';
 import { buildApi, createUser, openTestDb } from './helpers/test-app';
 
 /**
@@ -482,5 +483,72 @@ describe('versioning', () => {
 
   it('keeps childBody sane (guards the fixture the signature tests rely on)', () => {
     expect(childBody().guardian).toMatchObject({ firstName: 'Dana', lastName: 'Rivera' });
+  });
+});
+
+describe('the optional face-scan (biometric) consent', () => {
+  let bio: string;
+  beforeAll(async () => {
+    // Published by migration 20261013000002 (with the approved wording), so the test uses that row.
+    const { rows } = await db.query<{ id: string }>(
+      `select id from public.consents where code = 'BIOMETRIC_CONSENT' and version = 1`,
+    );
+    bio = rows[0]!.id;
+  });
+  const acceptBio = (f: Family, over: Record<string, unknown> = {}) =>
+    as(app, f.parent.id).post(`${R}/${f.regId}/consents`, {
+      consentId: bio,
+      signedName: 'Dana Rivera',
+      accepted: true,
+      ...over,
+    });
+
+  it('is never a requirement: the status still lists only the guardian consent, and registering does not need it', async () => {
+    const f = await family();
+    const res = await status(f.parent.id, f.regId);
+    expect(res.body.data.requirements.map((r: { code: string }) => r.code)).toEqual([
+      'GUARDIAN_CONSENT',
+    ]);
+    expect(res.body.data.requirements.every((r: { required: boolean }) => r.required)).toBe(true);
+  });
+
+  it('a linked guardian can accept it; it shows up as a record and changes no requirement', async () => {
+    const f = await family();
+    const res = await acceptBio(f);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.data).toMatchObject({
+      code: 'BIOMETRIC_CONSENT',
+      version: 1,
+      signedBy: 'GUARDIAN',
+      currentVersion: true,
+    });
+    const after = await status(f.parent.id, f.regId);
+    expect(after.body.data.records.map((r: { code: string }) => r.code)).toEqual([
+      'BIOMETRIC_CONSENT',
+    ]);
+    expect(after.body.data.requirements).toEqual([
+      expect.objectContaining({ code: 'GUARDIAN_CONSENT', accepted: false }),
+    ]);
+  });
+
+  it('needs the guardian’s own signature, like any consent for a minor', async () => {
+    const f = await family();
+    const res = await acceptBio(f, { signedName: 'Someone Else' });
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('SIGNATURE_MISMATCH');
+  });
+
+  it('cannot be accepted twice', async () => {
+    const f = await family();
+    expect((await acceptBio(f)).status).toBe(201);
+    expect((await acceptBio(f)).body.error.code).toBe('CONSENT_ALREADY_RECORDED');
+  });
+});
+
+describe('which consents can be recorded', () => {
+  it('only a player registration can record the face-scan consent', () => {
+    expect(recordableConsentCodes('PLAYER')).toEqual(['GUARDIAN_CONSENT', 'BIOMETRIC_CONSENT']);
+    expect(recordableConsentCodes('COACH')).toEqual(['AB506_ACKNOWLEDGEMENT']);
+    expect(recordableConsentCodes('STAFF')).toEqual([]);
   });
 });

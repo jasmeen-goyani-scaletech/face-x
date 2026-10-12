@@ -108,6 +108,15 @@ const envSchema = z
     VAPID_SUBJECT: optionalString, // mailto:you@example.org or an https URL
     FACE_PROVIDER_API_KEY: optionalString,
     FACE_PROVIDER_URL: optionalString,
+    // The "node-native" provider keeps face descriptors in this database, encrypted with AES-256-GCM under this key: 32 random
+    // bytes, base64 (node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"). Backend only; losing it makes
+    // every enrolled face unreadable (people would have to be enrolled again).
+    FACE_ENCRYPTION_KEY: z
+      .string()
+      .trim()
+      .refine((v) => /^[A-Za-z0-9+/]{43}=$/.test(v), 'must be 32 random bytes, base64-encoded')
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
   })
   .superRefine((env, ctx) => {
     if (env.JWT_SECRET === env.REFRESH_TOKEN_SECRET) {
@@ -122,6 +131,14 @@ const envSchema = z
         code: 'custom',
         path: ['FACE_REVIEW_THRESHOLD'],
         message: 'must not be higher than FACE_MATCH_THRESHOLD',
+      });
+    }
+    if (env.FACE_PROVIDER === 'node-native' && !env.FACE_ENCRYPTION_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['FACE_ENCRYPTION_KEY'],
+        message:
+          'is required when FACE_PROVIDER=node-native (face descriptors are stored encrypted)',
       });
     }
     if (env.STORAGE_DRIVER === 'local' && env.NODE_ENV === 'production') {

@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEventRoster } from '@/lib/api/admin';
 import { getDownloadUrl } from '@/lib/api/documents';
+import { checkInByFace } from '@/lib/api/eventday';
 import { describeError, isApiError } from '@/lib/api/errors';
 import type { ApiAdminEvent, ApiRosterEntry } from '@/lib/api/types';
 import { liveQuery } from 'dexie';
 import { getSessionUser } from '@/lib/api/session';
-import { getOfflineDb } from '@/lib/offline/db';
-import { isTransientStatus, mergePending } from '@/lib/offline/policy';
+import { getOfflineDb, newUuid } from '@/lib/offline/db';
+import { getDeviceId } from '@/lib/offline/deviceId';
+import { describeRefusal, isTransientStatus, mergePending } from '@/lib/offline/policy';
 import { cacheRoster, markCachedCheckedIn, readCachedRoster, rosterCacheEpoch } from '@/lib/offline/rosterCache';
 import { useToast } from '@/components/ui/Toast';
 import { enqueueCheckIn, listPending, MEMORY_QUEUE_EVENT, SERVER_CHECKINS_EVENT, type ServerCheckInsDetail } from '@/lib/offline/syncQueue';
@@ -64,6 +66,13 @@ export type ApiRosterState =
       roster: RosterEntry[];
       /** Records a check-in at once on screen; it is sent to the server by the offline queue (now, or when the connection returns). */
       markPresent: (id: string, method: string, override: boolean) => void;
+      /**
+       * Checks in the person a face scan clearly matched. Shown at once; sent to the server right away with the scan as proof.
+       * 'done': the server recorded it (or someone else had just checked them in). 'queued': the server could not be reached, so it was
+       * saved on this device as a manual check-in and will be sent when it can be. 'refused': the server would not (the scan expired,
+       * they are no longer cleared...): nothing was checked in, and `message` says why.
+       */
+      checkInWithFace: (id: string, scanId: string) => Promise<{ result: 'done' | 'queued' | 'refused'; message?: string }>;
       /** Where the roster on screen came from: the server just now (or earlier this visit), or this device's saved copy. */
       source: 'server' | 'device';
       /** When the server last gave this roster (ms epoch), or null while that is not known yet. */
@@ -240,6 +249,44 @@ export function useApiEventRoster(): ApiRosterState {
       .finally(() => markingRef.current.delete(id));
   }, [notify]);
 
+  const checkInWithFace = useCallback(
+    async (id: string, scanId: string): Promise<{ result: 'done' | 'queued' | 'refused'; message?: string }> => {
+      const eventNow = eventIdRef.current;
+      const person = rosterRef.current?.find((r) => r.id === id);
+      if (!eventNow || !person) return { result: 'refused', message: 'That person isn’t on this roster.' };
+      if (person.checkedInAt || markingRef.current.has(id)) return { result: 'done' };
+      markingRef.current.add(id);
+      const at = Date.now();
+      const show = (checkedInAt: number | null, method: string | null) =>
+        setRoster((prev) => prev?.map((r) => (r.id === id ? { ...r, checkedInAt, checkedInMethod: method, checkedInOverride: false } : r)) ?? prev);
+      show(at, 'Face Scan');
+      try {
+        await checkInByFace(eventNow, scanId, newUuid(), { deviceId: getDeviceId(), deviceCheckedInAt: new Date(at).toISOString() });
+        void markCachedCheckedIn(person.role, id, { checkedInAt: at, checkedInMethod: 'Face Scan', checkedInOverride: false });
+        return { result: 'done' };
+      } catch (e) {
+        if (isApiError(e) && e.code === 'ALREADY_CHECKED_IN') {
+          // Another device got there first: the server's time and method are the truth, read again.
+          window.dispatchEvent(new CustomEvent<ServerCheckInsDetail>(SERVER_CHECKINS_EVENT, { detail: { sent: true } }));
+          return { result: 'done' };
+        }
+        if (!isApiError(e) || isTransientStatus(e.status)) {
+          // The server could not be reached after the face WAS matched: keep the check-in as a manual one, which the offline queue can
+          // carry (a face check-in needs the live scan). Nothing is claimed that did not happen.
+          show(at, 'Manual');
+          void markCachedCheckedIn(person.role, id, { checkedInAt: at, checkedInMethod: 'Manual', checkedInOverride: false });
+          await enqueueCheckIn(person, eventNow, 'Manual', false, at);
+          return { result: 'queued' };
+        }
+        show(null, null);
+        return { result: 'refused', message: describeRefusal(e.message, e.details) };
+      } finally {
+        markingRef.current.delete(id);
+      }
+    },
+    []
+  );
+
   // Someone this device has checked in but the server has not acknowledged is marked, so "saved here" is never mistaken for "confirmed".
   const shown = useMemo(() => (roster && pendingIds.size > 0 ? roster.map((r) => (r.checkedInAt && pendingIds.has(r.id) ? { ...r, pendingSync: true } : r)) : roster), [roster, pendingIds]);
 
@@ -249,8 +296,8 @@ export function useApiEventRoster(): ApiRosterState {
     if (ev.status === 'empty') return { status: 'empty' };
     if (error && !shown) return { status: 'error', message: error, retry: () => setAttempt((n) => n + 1) };
     if (!shown) return { status: 'loading' };
-    return { status: 'ready', event: ev.event, events: ev.events, setEventId: ev.setEventId, refreshing, roster: shown, markPresent, source, syncedAt, online: browserOnline && reachable };
-  }, [ev, error, shown, refreshing, markPresent, source, syncedAt, browserOnline, reachable]);
+    return { status: 'ready', event: ev.event, events: ev.events, setEventId: ev.setEventId, refreshing, roster: shown, markPresent, checkInWithFace, source, syncedAt, online: browserOnline && reachable };
+  }, [ev, error, shown, refreshing, markPresent, checkInWithFace, source, syncedAt, browserOnline, reachable]);
 }
 
 /**

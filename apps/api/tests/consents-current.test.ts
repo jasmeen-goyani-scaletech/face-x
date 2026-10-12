@@ -50,15 +50,19 @@ afterAll(async () => {
   await admin.end();
 });
 
-const current = async () =>
-  (await as(app, viewer).get('/api/v1/consents/current')).body.data as {
-    id: string;
-    code: string;
-    version: number;
-    title: string;
-    body: string;
-    effectiveAt: string;
-  }[];
+type Current = {
+  id: string;
+  code: string;
+  version: number;
+  title: string;
+  body: string;
+  effectiveAt: string;
+};
+/** Every published consent. The face-scan consent is published by a migration, so it is always there; the tests below about the
+ *  guardian and AB 506 wording look at `current()`, which leaves it out, and the last test looks at `everything()`. */
+const everything = async () =>
+  (await as(app, viewer).get('/api/v1/consents/current')).body.data as Current[];
+const current = async () => (await everything()).filter((c) => c.code !== 'BIOMETRIC_CONSENT');
 
 describe('GET /consents/current', () => {
   it('needs a signed-in user', async () => {
@@ -68,7 +72,7 @@ describe('GET /consents/current', () => {
   it('is an empty list while nothing is published (the form must not invent wording)', async () => {
     const res = await as(app, viewer).get('/api/v1/consents/current');
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual([]);
+    expect(await current()).toEqual([]); // nothing but the face-scan consent (published by migration) exists
   });
 
   it('returns the published guardian consent with its exact wording', async () => {
@@ -100,13 +104,13 @@ describe('GET /consents/current', () => {
     expect(list[0]).toMatchObject({ code: 'GUARDIAN_CONSENT', version: 3, body: '[TEST v3]' });
   });
 
-  it('only lists consents a registration can need (guardian and AB 506; no biometric consent)', async () => {
+  it('lists the consents a registration can record: guardian, AB 506 and the optional biometric consent', async () => {
+    // (BIOMETRIC_CONSENT v1 is already published by migration 20261013000002.)
     await db.query(
       `insert into public.consents (code, version, title, body, effective_at)
-       values ('AB506_ACKNOWLEDGEMENT', 1, 'AB 506', '[TEST AB506]', now() - interval '1 day'),
-              ('BIOMETRIC_CONSENT', 1, 'Biometric', '[TEST BIO]', now() - interval '1 day')`,
+       values ('AB506_ACKNOWLEDGEMENT', 1, 'AB 506', '[TEST AB506]', now() - interval '1 day')`,
     );
-    const codes = (await current()).map((c) => c.code).sort();
-    expect(codes).toEqual(['AB506_ACKNOWLEDGEMENT', 'GUARDIAN_CONSENT']);
+    const codes = (await everything()).map((c) => c.code).sort();
+    expect(codes).toEqual(['AB506_ACKNOWLEDGEMENT', 'BIOMETRIC_CONSENT', 'GUARDIAN_CONSENT']);
   });
 });

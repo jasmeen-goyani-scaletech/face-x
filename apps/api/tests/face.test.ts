@@ -193,7 +193,12 @@ describe('POST /players/:id/face-profile: enroll', () => {
       {
         action: 'FACE_PROFILE_CREATED',
         actor_user_id: f.parent.id,
-        metadata: { playerId: f.playerId, documentId: f.photo.id, consentRecorded: true },
+        metadata: {
+          playerId: f.playerId,
+          documentId: f.photo.id,
+          consentRecorded: true,
+          automatic: false,
+        },
       },
     ]);
   });
@@ -845,5 +850,210 @@ describe('database guards behind the API', () => {
     expect(
       await run("update public.face_profiles set revoked_reason = 'X' where id = $1", [p!.id]),
     ).toMatch(/revocation_fields/);
+  });
+});
+
+describe('automatic enrollment when an admin approves the photo', () => {
+  const approve = (docId: string, userId = adminA) =>
+    as(app, userId).patch(`${D}/${docId}/review`, { decision: 'APPROVED' });
+
+  /** A photo uploaded and submitted but not yet approved, for a family that has (or has not) accepted the biometric consent. */
+  async function pending(withConsent: boolean) {
+    const f = await family();
+    if (withConsent) await consented(f);
+    const photo = await approvedPhoto(f, jpegOf(`auto-${Math.random()}`), false);
+    return { ...f, photo };
+  }
+
+  it('enrolls the approved photo when biometric consent was given: by the approving admin, marked automatic', async () => {
+    const f = await pending(true);
+    const before = face.enrollCalls.length;
+    expect((await approve(f.photo.id)).status).toBe(200);
+    const [p] = await profiles(f.playerId);
+    expect(p).toMatchObject({
+      status: 'ACTIVE',
+      source_document_id: f.photo.id,
+      enrolled_by: adminA,
+      consent_record_id: expect.any(String),
+    });
+    expect(face.enrollCalls).toHaveLength(before + 1);
+    expect(face.enrollCalls.at(-1)).toMatchObject({ subjectId: f.playerId });
+    const audit = await db.query<{ metadata: Record<string, unknown> }>(
+      'select metadata from public.audit_logs where entity_id = $1',
+      [p!.id],
+    );
+    expect(audit.rows[0]!.metadata).toMatchObject({
+      playerId: f.playerId,
+      consentRecorded: true,
+      automatic: true,
+    });
+    expect((await status(f.parent.id, f.playerId)).body.data.status).toBe('ACTIVE');
+  });
+
+  it('does not enroll without biometric consent: the approval stands, the provider is never called, the player is checked in by hand', async () => {
+    const f = await pending(false);
+    const before = face.enrollCalls.length;
+    expect((await approve(f.photo.id)).status).toBe(200);
+    expect(await profiles(f.playerId)).toEqual([]);
+    expect(face.enrollCalls).toHaveLength(before);
+    expect((await status(f.parent.id, f.playerId)).body.data.status).toBe('NOT_ENROLLED');
+  });
+
+  it('does not enroll a rejected photo', async () => {
+    const f = await pending(true);
+    const before = face.enrollCalls.length;
+    const res = await as(app, adminA).patch(`${D}/${f.photo.id}/review`, {
+      decision: 'REJECTED',
+      reasonCode: 'UNREADABLE',
+      reason: 'Too blurry',
+    });
+    expect(res.status).toBe(200);
+    expect(await profiles(f.playerId)).toEqual([]);
+    expect(face.enrollCalls).toHaveLength(before);
+  });
+
+  it('does not enroll other documents (only the profile photo is a face)', async () => {
+    const f = await family();
+    await consented(f);
+    const bytes = fileBytes.jpeg(2000);
+    const up = await as(app, f.parent.id).post(`${R}/${f.regId}/documents/upload-url`, {
+      documentType: 'BIRTH_CERTIFICATE',
+      fileName: 'bc.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: bytes.length,
+    });
+    const id = up.body.data.document.id as string;
+    const key = (
+      await db.query<{ storage_key: string }>(
+        'select storage_key from public.documents where id = $1',
+        [id],
+      )
+    ).rows[0]!.storage_key;
+    storage.put(key, bytes);
+    await as(app, f.parent.id).post(`${D}/${id}/complete`);
+    await as(app, f.parent.id).post(`${D}/${id}/submit`);
+    const before = face.enrollCalls.length;
+    expect((await approve(id)).status).toBe(200);
+    expect(await profiles(f.playerId)).toEqual([]);
+    expect(face.enrollCalls).toHaveLength(before);
+  });
+
+  it('never blocks or fails the approval when the face cannot be enrolled (no face in the photo, provider down)', async () => {
+    const noFace = await family();
+    await consented(noFace);
+    const bad = await approvedPhoto(noFace, noFaceJpeg(), false);
+    expect((await approve(bad.id)).status).toBe(200);
+    expect(await profiles(noFace.playerId)).toEqual([]);
+
+    const down = await pending(true);
+    face.failures.enroll = true;
+    try {
+      expect((await approve(down.photo.id)).status).toBe(200);
+    } finally {
+      face.failures.enroll = false;
+    }
+    expect(await profiles(down.playerId)).toEqual([]);
+    // the document really is approved
+    const doc = await db.query<{ status: string }>(
+      'select status from public.documents where id = $1',
+      [down.photo.id],
+    );
+    expect(doc.rows[0]!.status).toBe('APPROVED');
+  });
+
+  it('does nothing when face recognition is not configured, or the consent policy is not decided', async () => {
+    for (const cfg of [undefined, recognition({ consentPolicy: undefined })]) {
+      const other = buildApi(db, { storage, faceRecognition: cfg });
+      const f = await family();
+      await consented(f);
+      const photo = await approvedPhoto(f, jpegOf(`cfg-${Math.random()}`), false);
+      const before = face.enrollCalls.length;
+      expect(
+        (await as(other, adminA).patch(`${D}/${photo.id}/review`, { decision: 'APPROVED' })).status,
+      ).toBe(200);
+      expect(await profiles(f.playerId)).toEqual([]);
+      expect(face.enrollCalls).toHaveLength(before);
+    }
+  });
+});
+
+describe('automatic enrollment when the guardian consents after the photo was approved', () => {
+  let original: typeof app;
+  let bioId: string;
+  beforeAll(async () => {
+    original = app;
+    // The consent route records the real face-scan consent (published by migration), so this app enrolls under that code.
+    app = buildApi(db, {
+      storage,
+      faceRecognition: recognition({ consentPolicy: 'BIOMETRIC_CONSENT' }),
+    });
+    bioId = (
+      await db.query<{ id: string }>(
+        `select id from public.consents where code = 'BIOMETRIC_CONSENT' and version = 1`,
+      )
+    ).rows[0]!.id;
+  });
+  afterAll(() => {
+    app = original;
+  });
+  const consent = (f: Family) =>
+    as(app, f.parent.id).post(`${R}/${f.regId}/consents`, {
+      consentId: bioId,
+      signedName: 'Dana Rivera',
+      accepted: true,
+    });
+
+  it('enrolls the already-approved photo the moment the consent is recorded, as the guardian who consented', async () => {
+    const f = await family();
+    await approvedPhoto(f); // approved first: no consent yet, so nothing is enrolled
+    expect(await profiles(f.playerId)).toEqual([]);
+    const before = face.enrollCalls.length;
+    const res = await consent(f);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const [p] = await profiles(f.playerId);
+    expect(p).toMatchObject({
+      status: 'ACTIVE',
+      enrolled_by: f.parent.id,
+      consent_record_id: expect.any(String),
+    });
+    expect(face.enrollCalls).toHaveLength(before + 1);
+    const audit = await db.query<{ metadata: Record<string, unknown> }>(
+      'select metadata from public.audit_logs where entity_id = $1',
+      [p!.id],
+    );
+    expect(audit.rows[0]!.metadata).toMatchObject({ consentRecorded: true, automatic: true });
+  });
+
+  it('does nothing yet when the photo is not approved; the approval then enrolls it', async () => {
+    const f = await family();
+    await approvedPhoto(f, jpegOf(`late-${Math.random()}`), false);
+    const before = face.enrollCalls.length;
+    expect((await consent(f)).status).toBe(201);
+    expect(await profiles(f.playerId)).toEqual([]);
+    expect(face.enrollCalls).toHaveLength(before);
+    const doc = await db.query<{ id: string }>(
+      `select d.id from public.documents d where d.registration_id = $1 and d.document_type = 'PROFILE_PHOTO'`,
+      [f.regId],
+    );
+    expect(
+      (await as(app, adminA).patch(`${D}/${doc.rows[0]!.id}/review`, { decision: 'APPROVED' }))
+        .status,
+    ).toBe(200);
+    expect((await profiles(f.playerId))[0]).toMatchObject({
+      status: 'ACTIVE',
+      enrolled_by: adminA,
+    });
+  });
+
+  it('never fails the consent when the face cannot be enrolled (provider down)', async () => {
+    const f = await family();
+    await approvedPhoto(f);
+    face.failures.enroll = true;
+    try {
+      expect((await consent(f)).status).toBe(201);
+    } finally {
+      face.failures.enroll = false;
+    }
+    expect(await profiles(f.playerId)).toEqual([]);
   });
 });

@@ -165,10 +165,19 @@ describe('schema', () => {
       'select title, body from public.consents',
     );
     expect(consents.length).toBeGreaterThan(0);
-    for (const c of consents) {
+    // The face-scan consent carries the approved wording (published by a migration, which also runs in production): it is the one
+    // consent that is not a placeholder. Every other consent here is.
+    const placeholders = consents.filter((c) => !c.title.startsWith('Face-scan'));
+    expect(placeholders.length).toBeGreaterThan(0);
+    for (const c of placeholders) {
       expect(c.title).toContain('DEV PLACEHOLDER');
       expect(c.body).toContain('NOT LEGAL TEXT');
     }
+    const bio = consents.find((c) => c.title.startsWith('Face-scan'));
+    expect(bio?.body).toMatch(
+      /^I consent to the collection, extraction, and secure storage of biometric face templates/,
+    );
+    expect(bio?.body).not.toContain('PLACEHOLDER');
   });
 
   it('keeps functions on a fixed search_path', async () => {

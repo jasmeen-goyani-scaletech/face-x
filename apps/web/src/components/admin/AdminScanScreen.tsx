@@ -13,6 +13,8 @@ import ManualCheckInDialog from './ManualCheckInDialog';
 import RoleFilterTabs, { ROLE_FILTER_LABEL, type RoleFilter } from './RoleFilterTabs';
 import VerificationHud from './VerificationHud';
 import { entryAccessState } from '@/lib/accessCompliance';
+import { scanFace } from '@/lib/api/eventday';
+import { describeScanProblem, resolveScan, type ScanProblem } from '@/lib/faceScan';
 import { getFaceMatcher, isAutoGrantSafe } from '@/lib/faceMatcher';
 import { formatFullDateTime, formatWhen, initialsOf, checkInVia } from '@/lib/format';
 import EventDayGate, { EventLine, type ReadyRoster } from './EventDayGate';
@@ -23,30 +25,36 @@ const VERIFIED_BANNER_MS = 1500;
 
 const ROLE_LABEL: Record<RosterEntry['role'], string> = { player: 'Player', coach: 'Coach', staff: 'Staff' };
 
-type Phase = 'idle' | 'comparing' | 'failed' | 'unavailable' | 'review';
+type Phase = 'idle' | 'comparing' | 'failed' | 'unavailable' | 'review' | 'problem' | 'several';
 
 /**
  * Event-day check-in screen: a full-width page with the live viewfinder beside the review and activity panel.
  *
  * Verifying someone is an explicit action, not something the camera does on its own:
  *   1. The camera is live as soon as the page opens. Staff frame one face and press **Scan & Verify Face**.
- *   2. The current frame is captured and compared against the registered photos ("Comparing face…").
- *   3. Match, fully clear  → checked in, "User Verified: Name (Role • Team)" for 1.5 s, activity list updates, ready again.
- *      Match, not clear    → blocked by compliance / already in / payment incomplete: shown beside the camera. A blocked
- *                            person cannot be checked in (no override); the block is resolved on their profile.
+ *   2. The current frame is sent to the server (POST /events/:id/face-scan), which compares it with the faces enrolled for this
+ *      event ("Comparing face…"). The photo is not kept.
+ *   3. Match, fully clear  → checked in by face (POST /events/:id/check-ins with the scan as proof), "User Verified: Name (Role • Team)"
+ *                            for 1.5 s, activity list updates, ready again.
+ *      Doubtful, or a match that is blocked by compliance / already in / payment incomplete: shown beside the camera for staff to
+ *                            decide (a human decision is a manual check-in). A blocked person cannot be checked in (no override).
+ *      Several look alike  → their names, and Manual Search & Approve.
  *      No match            → "Face Match Failed" with **Try Manual Search & Approve**.
- *      No matcher at all   → "Face matching isn't set up": nothing was compared, so it says so rather than "no match".
+ *      Face matching not set up on the server → "Face matching isn't set up": nothing was compared, so it says so, not "no match".
+ *      Cannot reach the server → says so; check-ins by hand are saved on the device and sent later.
  * **Manual Search & Approve** (top right) is always there as the bypass: find the person, compare their on-file photo with
  * who is standing there, confirm. It works with no camera and no matcher.
  *
- * Face identification is a plug-in (lib/faceMatcher.ts). The built-in matcher is a simulation, on only in Demo Mode.
+ * The comparison itself happens on the server (node-native provider). The only matcher in the browser is the Demo Mode simulation
+ * (lib/faceMatcher.ts), on only when NEXT_PUBLIC_DEMO_MODE=true.
  */
 export default function AdminScanScreen() {
   return <EventDayGate>{(r) => <ScannerView data={r} />}</EventDayGate>;
 }
 
 function ScannerView({ data }: { data: ReadyRoster }) {
-  const { roster, markPresent } = data;
+  const { roster, markPresent, checkInWithFace } = data;
+  const eventId = data.event.id;
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const scoped = useMemo(() => (roleFilter === 'all' ? roster : roster.filter((r) => r.role === roleFilter)), [roster, roleFilter]);
   // The async match must see the latest roster, not the one from when the button was pressed.
@@ -65,6 +73,11 @@ function ScannerView({ data }: { data: ReadyRoster }) {
   const [nudge, setNudge] = useState(false);
   const [banner, setBanner] = useState<{ text: string; tag?: string } | null>(null);
   const [reviewEntry, setReviewEntry] = useState<RosterEntry | null>(null);
+  /** Why the last scan did not give an answer, and who looked alike, for the alerts under the camera. */
+  const [problem, setProblem] = useState<ScanProblem | null>(null);
+  const [lookAlikes, setLookAlikes] = useState<string[]>([]);
+  /** The server said face matching is not set up: the status line says so from then on. */
+  const [serverOff, setServerOff] = useState(false);
 
   const runId = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -92,9 +105,57 @@ function ScannerView({ data }: { data: ReadyRoster }) {
     later(() => setBanner(null), VERIFIED_BANNER_MS);
   }
 
+  /** The banner for someone the server has checked in (or saved for sending): no second check-in is made here. */
+  function confirmed(entry: RosterEntry, tag?: string) {
+    setReviewEntry(null);
+    setPhase('idle');
+    setBanner({ text: `User Verified: ${entry.firstName} ${entry.lastName} (${ROLE_LABEL[entry.role]} • ${entry.teamName || 'No team'})`, tag });
+    later(() => setBanner(null), VERIFIED_BANNER_MS);
+  }
+
+  /** Sends the frame to the server and acts on its answer. Nothing is checked in unless the server says this is clearly the person. */
+  async function scanOnServer(frame: string, mine: number) {
+    try {
+      const photo = await (await fetch(frame)).blob();
+      const scan = await scanFace(eventId, photo);
+      if (mine !== runId.current) return; // the manual dialog opened, or we unmounted
+      const outcome = resolveScan(scan, scopedRef.current, isAutoGrantSafe);
+      switch (outcome.kind) {
+        case 'checkin': {
+          const done = await checkInWithFace(outcome.entry.id, outcome.scanId);
+          if (mine !== runId.current) return;
+          if (done.result === 'refused') {
+            setProblem({ kind: 'other', text: done.message ?? 'The server would not check this person in.' });
+            setReviewEntry(outcome.entry);
+            return setPhase('problem');
+          }
+          return confirmed(outcome.entry, done.result === 'queued' ? 'Saved · waiting to sync' : undefined);
+        }
+        case 'review':
+          setReviewEntry(outcome.entry);
+          return setPhase('review');
+        case 'several':
+          setLookAlikes(outcome.names);
+          return setPhase('several');
+        case 'unknown':
+          setProblem({ kind: 'other', text: 'That face matched someone who isn’t in the list on this screen (check the role filter, or refresh the roster). Use Manual Search & Approve.' });
+          return setPhase('problem');
+        default:
+          return setPhase('failed');
+      }
+    } catch (e) {
+      if (mine !== runId.current) return;
+      const why = describeScanProblem(e);
+      if (why.kind === 'unavailable') setServerOff(true);
+      setProblem(why);
+      setPhase(why.kind === 'unavailable' ? 'unavailable' : 'problem');
+    }
+  }
+
   function scanAndVerify() {
     if (cam.status !== 'live' || phase === 'comparing' || dialogOpen || banner) return;
     setReviewEntry(null);
+    setProblem(null);
     // The detector says the face isn't ready (too far, off-centre, moving…): flash the instruction instead of comparing a poor frame.
     if (face.detector === 'ready' && !faceReady) {
       setPhase('idle');
@@ -102,13 +163,14 @@ function ScannerView({ data }: { data: ReadyRoster }) {
       later(() => setNudge(false), 1200);
       return;
     }
-    const frame = cam.capture();
+    // Natural orientation, not the mirrored preview: a face is compared as it is, and a mirror image of it scores worse.
+    const frame = cam.capture({ mirror: false });
     if (!frame) return;
-    // Nothing is plugged in to compare faces, so nothing is compared. Say that, instead of claiming "no match".
-    if (!matcher) return setPhase('unavailable');
 
     const mine = ++runId.current;
     setPhase('comparing');
+    // The server compares faces. (Demo Mode swaps in a simulation that looks at nothing, for walkthroughs without a backend.)
+    if (!matcher) return void scanOnServer(frame, mine);
     matcher
       .match(frame, scopedRef.current)
       .then((result) => {
@@ -140,7 +202,11 @@ function ScannerView({ data }: { data: ReadyRoster }) {
   const busy = phase === 'comparing' || !!banner || dialogOpen;
   const scope = roleFilter === 'all' ? '' : ` · ${ROLE_FILTER_LABEL[roleFilter]} only`;
   const status: { ok: boolean; text: string } = !matcher
-    ? { ok: false, text: 'Face matching isn’t enabled on this device. Scan & Verify can’t identify anyone yet; use Manual Search & Approve.' }
+    ? serverOff
+      ? { ok: false, text: 'Face matching isn’t set up on the server yet. Scan & Verify can’t identify anyone; use Manual Search & Approve.' }
+      : !data.online
+        ? { ok: false, text: 'Offline: faces can’t be compared until the connection returns. Use Manual Search & Approve; check-ins are saved on this device.' }
+        : { ok: true, text: `Face matching active${scope}. Frame one face, then press Scan & Verify Face.` }
     : matcher.isDemo
       ? { ok: true, text: `Demo matching active${scope}: simulated, with no real face comparison.` }
       : { ok: true, text: `Face matching active${scope}. Frame one face, then press Scan & Verify Face.` };
@@ -254,6 +320,44 @@ function ScannerView({ data }: { data: ReadyRoster }) {
                 </div>
               </div>
             )}
+            {phase === 'several' && (
+              <div role="alert" className="m-4 mb-0 flex flex-col gap-3 rounded-s border border-warning bg-warning-soft p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 gap-3">
+                  <AlertTriangleIcon size={20} className="mt-0.5 shrink-0 text-warning" />
+                  <div>
+                    <div className="text-sm font-bold text-warning">Several people look alike</div>
+                    <p className="m-0 mt-0.5 text-[13px] text-ink-soft">Nobody was checked in. Could be: {lookAlikes.join(', ')}. Find the right person by hand.</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                  <Button variant="secondary" onClick={scanAndVerify}>
+                    <RefreshIcon size={16} /> Scan again
+                  </Button>
+                  <Button variant="primary" onClick={openManual}>
+                    <SearchIcon size={16} /> Try Manual Search & Approve
+                  </Button>
+                </div>
+              </div>
+            )}
+            {phase === 'problem' && problem && (
+              <div role="alert" className="m-4 mb-0 flex flex-col gap-3 rounded-s border border-warning bg-warning-soft p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 gap-3">
+                  <AlertTriangleIcon size={20} className="mt-0.5 shrink-0 text-warning" />
+                  <div>
+                    <div className="text-sm font-bold text-warning">{problem.kind === 'offline' ? 'Can’t compare faces right now' : 'The scan didn’t finish'}</div>
+                    <p className="m-0 mt-0.5 text-[13px] text-ink-soft">Nobody was checked in. {problem.text}</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                  <Button variant="secondary" onClick={scanAndVerify}>
+                    <RefreshIcon size={16} /> Scan again
+                  </Button>
+                  <Button variant="primary" onClick={openManual}>
+                    <SearchIcon size={16} /> Try Manual Search & Approve
+                  </Button>
+                </div>
+              </div>
+            )}
             {phase === 'unavailable' && (
               <div role="alert" className="m-4 mb-0 flex flex-col gap-3 rounded-s border border-warning bg-warning-soft p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 gap-3">
@@ -286,7 +390,12 @@ function ScannerView({ data }: { data: ReadyRoster }) {
         <aside className="flex min-w-0 flex-col gap-5">
           {phase === 'review' && reviewEntry && (
             <div>
-              <VerificationHud entry={reviewEntry} method="Face Scan" onConfirm={(_id, method) => checkIn(reviewEntry, method === 'Manual' ? 'Manual' : 'Face Scan')} />
+              <VerificationHud
+                entry={reviewEntry}
+                method="Face Scan"
+                // With the server comparing faces, a person deciding is a manual check-in: only a clear match is recorded as a face check-in.
+                onConfirm={(_id, method) => checkIn(reviewEntry, matcher && method !== 'Manual' ? 'Face Scan' : 'Manual')}
+              />
               <div className="mt-3 flex justify-end">
                 <Button
                   variant="secondary"

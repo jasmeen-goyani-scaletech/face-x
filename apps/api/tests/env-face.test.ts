@@ -47,3 +47,35 @@ describe('face recognition configuration', () => {
     }
   });
 });
+
+describe('FACE_ENCRYPTION_KEY (node-native face templates)', () => {
+  const key = Buffer.alloc(32, 7).toString('base64');
+
+  it('is required when the node-native provider is configured, and only then', () => {
+    expect(() => parseEnv({ ...valid, FACE_PROVIDER: 'node-native' })).toThrow(EnvValidationError);
+    expect(
+      parseEnv({ ...valid, FACE_PROVIDER: 'node-native', FACE_ENCRYPTION_KEY: key })
+        .FACE_ENCRYPTION_KEY,
+    ).toBe(key);
+    expect(parseEnv(valid).FACE_ENCRYPTION_KEY).toBeUndefined();
+    expect(parseEnv({ ...valid, FACE_ENCRYPTION_KEY: '' }).FACE_ENCRYPTION_KEY).toBeUndefined();
+  });
+
+  it('must be 32 bytes of base64, and its value is never echoed in the error', () => {
+    for (const bad of [
+      'short',
+      Buffer.alloc(16).toString('base64'),
+      Buffer.alloc(33).toString('base64'),
+      'x'.repeat(44),
+    ]) {
+      let message = '';
+      try {
+        parseEnv({ ...valid, FACE_PROVIDER: 'node-native', FACE_ENCRYPTION_KEY: bad });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message, bad).toContain('FACE_ENCRYPTION_KEY');
+      expect(message).not.toContain(bad);
+    }
+  });
+});

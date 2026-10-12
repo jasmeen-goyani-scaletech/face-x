@@ -35,11 +35,11 @@ runFaceProviderContract(
 );
 
 describe('provider registry', () => {
-  it('has no adapter registered yet: no stand-in provider is shipped in production code', () => {
-    expect(registeredFaceProviders()).toEqual([]);
-    expect(createFaceProvider('rekognition', {})).toBeUndefined();
-    expect(createFaceProvider(undefined, {})).toBeUndefined();
-    expect(createFaceProvider('fake', {})).toBeUndefined();
+  it('registers only the real node-native adapter: no stand-in provider is shipped in production code', () => {
+    expect(registeredFaceProviders()).toEqual(['node-native']);
+    expect(createFaceProvider('rekognition', {}, { db: {} as never })).toBeUndefined();
+    expect(createFaceProvider(undefined, {}, { db: {} as never })).toBeUndefined();
+    expect(createFaceProvider('fake', {}, { db: {} as never })).toBeUndefined();
   });
 });
 
@@ -131,10 +131,9 @@ describe('swapping the provider behind the interface', () => {
       const provider = createFakeFaceProvider({ name, referencePrefix: prefix });
       const { app, storage } = await setup(provider);
       const f = await readyFamily(app, storage);
-      const res = await as(app, f.parent.id).post(`/api/v1/players/${f.playerId}/face-profile`, {
-        documentId: f.docId,
-      });
-      expect(res.status, name).toBe(201);
+      // The admin's approval of the photo (in readyFamily) already enrolled it, as the policy here waives consent.
+      const res = await as(app, f.parent.id).get(`/api/v1/players/${f.playerId}/face-profile`);
+      expect(res.status, name).toBe(200);
       expect(res.body.data).toEqual({
         playerId: f.playerId,
         status: 'ACTIVE',
@@ -171,7 +170,8 @@ describe('swapping the provider behind the interface', () => {
     const f = await readyFamily(a.app, a.storage);
     const url = `/api/v1/players/${f.playerId}/face-profile`;
 
-    expect((await as(a.app, f.parent.id).post(url, { documentId: f.docId })).status).toBe(201);
+    // enrolled by the approval of the photo
+    expect((await as(a.app, f.parent.id).get(url)).body.data.status).toBe('ACTIVE');
     const blocked = await as(b.app, f.parent.id).post(url, { documentId: f.docId });
     expect(blocked.status).toBe(409);
     expect(second.enrollCalls).toEqual([]);

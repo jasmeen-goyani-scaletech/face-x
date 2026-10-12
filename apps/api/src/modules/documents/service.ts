@@ -59,8 +59,20 @@ export interface DocumentServiceDeps {
   readiness: ReadinessTrigger;
   /** Told about each review decision after it has committed. Absent: no notifications. */
   notifications?: NotificationPublisher;
+  /** Told when an admin approves a player's profile photo, after the approval has committed. Absent: nothing is enrolled. */
+  faceEnrollment?: PhotoApprovedHook;
   /** Absent when STORAGE_* is not configured: operations that touch files answer 503. */
   storage?: { files: FileStorage; inspector: ObjectInspector };
+}
+
+/** What happens to a player's face after their photo is approved (see FaceService.enrollApprovedPhoto). Must not throw. */
+export interface PhotoApprovedHook {
+  afterPhotoApproved(input: {
+    playerId: string;
+    documentId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<unknown>;
 }
 
 /** Photos go to their own area (own size and type limits); everything else is a document. */
@@ -109,6 +121,7 @@ export function createDocumentService({
   storage,
   readiness,
   notifications,
+  faceEnrollment,
 }: DocumentServiceDeps): DocumentService {
   const requireStorage = () => {
     if (!storage) throw storageNotConfigured();
@@ -410,6 +423,17 @@ export function createDocumentService({
         reason: body.decision === 'REJECTED' ? body.reason : null,
       });
       await readiness.afterChange(access.document.registrationId);
+      // The approved photo becomes the player's face, if their guardian consented. The approval above stands whatever happens here.
+      if (body.decision === 'APPROVED' && reviewedType === 'PROFILE_PHOTO' && access.playerId) {
+        await faceEnrollment
+          ?.afterPhotoApproved({
+            playerId: access.playerId,
+            documentId,
+            actorUserId: ctx.userId,
+            meta,
+          })
+          .catch(() => undefined);
+      }
       return dtoOrThrow(documentId);
     },
 

@@ -1,24 +1,35 @@
+import type { Queryable } from '../database/database';
 import type { FaceRecognitionProvider } from './face-provider';
+import { NODE_NATIVE_PROVIDER, createNodeNativeFromEnv } from './providers/node-native.provider';
 
 /**
- * Where a real provider is plugged in later: add an adapter under `infrastructure/face/providers/<name>.ts` and
- * register its factory here under the value operators set in FACE_PROVIDER. Nothing else in the application changes.
+ * Where a provider is plugged in: add an adapter under `infrastructure/face/providers/<name>.ts` and register its factory here
+ * under the value operators set in FACE_PROVIDER. Nothing else in the application changes.
  *
- * NOTHING IS REGISTERED YET: no real provider has been chosen, and no stand-in is shipped in production code (a
- * fake exists only in the tests). With no provider, face enrollment answers 503.
+ * REGISTERED: "node-native", face-api (WASM) running inside this API with its descriptors kept encrypted in `face_templates`.
+ * It needs FACE_ENCRYPTION_KEY and no cloud service. With FACE_PROVIDER unset, enrollment and scanning answer 503.
  *
- * Provider-specific settings (credentials, endpoint, region, collection/project ids...) will be read by that adapter's
- * factory. FACE_PROVIDER_API_KEY and FACE_PROVIDER_URL already exist as optional env values for it; anything else it
- * needs is added together with the adapter.
+ * Provider-specific settings (credentials, endpoint, region, collection/project ids...) are read by that adapter's factory.
  */
 export interface FaceProviderEnv {
   FACE_PROVIDER_API_KEY?: string;
   FACE_PROVIDER_URL?: string;
+  FACE_ENCRYPTION_KEY?: string;
 }
 
-export type FaceProviderFactory = (env: FaceProviderEnv) => FaceRecognitionProvider;
+/** What an adapter may use besides the environment: the database, for providers that keep their own data. */
+export interface FaceProviderDeps {
+  db: Queryable;
+}
 
-const FACTORIES: Readonly<Record<string, FaceProviderFactory>> = {};
+export type FaceProviderFactory = (
+  env: FaceProviderEnv,
+  deps: FaceProviderDeps,
+) => FaceRecognitionProvider;
+
+const FACTORIES: Readonly<Record<string, FaceProviderFactory>> = {
+  [NODE_NATIVE_PROVIDER]: createNodeNativeFromEnv,
+};
 
 export const registeredFaceProviders = (): string[] => Object.keys(FACTORIES);
 
@@ -26,7 +37,8 @@ export const registeredFaceProviders = (): string[] => Object.keys(FACTORIES);
 export function createFaceProvider(
   name: string | undefined,
   env: FaceProviderEnv,
+  deps: FaceProviderDeps,
 ): FaceRecognitionProvider | undefined {
   const factory = name ? FACTORIES[name] : undefined;
-  return factory?.(env);
+  return factory?.(env, deps);
 }

@@ -57,7 +57,10 @@ export function createAdminController(service: AdminService): AdminController {
         res.json({ success: true, data: await service.listEvents(caller(req)) });
         return;
       }
-      const data = await service.listEventsPage(caller(req), { page: page ?? 1, pageSize: pageSize ?? 25 });
+      const data = await service.listEventsPage(caller(req), {
+        page: page ?? 1,
+        pageSize: pageSize ?? 25,
+      });
       res.json({ success: true, data });
     },
 
@@ -121,7 +124,10 @@ export function createAdminController(service: AdminService): AdminController {
         res.json({ success: true, data: await service.roster(eventOf(req)) });
         return;
       }
-      const data = await service.rosterPage(eventOf(req), { page: page ?? 1, pageSize: pageSize ?? 100 });
+      const data = await service.rosterPage(eventOf(req), {
+        page: page ?? 1,
+        pageSize: pageSize ?? 100,
+      });
       res.json({ success: true, data });
     },
 

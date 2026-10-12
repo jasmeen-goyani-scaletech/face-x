@@ -19,7 +19,7 @@ import { createAuthModule, createAuthRepository } from './modules/auth';
 import { createCoachTeamModule } from './modules/coachteam';
 import { createConsentsModule } from './modules/consents';
 import { createDocumentsModule } from './modules/documents';
-import { createFaceModule, type FaceRecognitionConfig } from './modules/face';
+import { createFaceModule, createFaceServiceFor, type FaceRecognitionConfig } from './modules/face';
 import {
   createEventDayModule,
   DEFAULT_EVENT_DAY_RATE_LIMITS,
@@ -132,6 +132,9 @@ export function createApp({
     notifications: notifications.publisher,
   });
 
+  // One face service for the face API and for what an admin's photo approval sets in motion.
+  const faceService = createFaceServiceFor({ db, recognition: faceRecognition, logger });
+
   const app = express();
 
   // Behind a reverse proxy (a load balancer, Caddy, nginx) req.ip is the proxy unless this is set. The number is how many
@@ -193,17 +196,37 @@ export function createApp({
   // These span /registrations/:id/... and /documents/...: authentication is applied per route.
   app.use(
     '/api/v1',
-    createDocumentsModule(db, auth.middleware, storage, readiness.trigger, notifications.publisher),
+    createDocumentsModule(
+      db,
+      auth.middleware,
+      storage,
+      readiness.trigger,
+      notifications.publisher,
+      {
+        afterPhotoApproved: (input) => faceService.enrollApprovedPhoto(input),
+      },
+    ),
   );
   app.use('/api/v1', createCoachTeamModule(db, auth.middleware));
-  app.use('/api/v1', createConsentsModule(db, auth.middleware, readiness.trigger));
+  app.use(
+    '/api/v1',
+    createConsentsModule(db, auth.middleware, readiness.trigger, {
+      afterBiometricConsent: (input) => faceService.enrollAfterConsent(input),
+    }),
+  );
   app.use('/api/v1', notifications.router);
   app.use('/api/v1', paymentsModule.router);
   app.use('/api/v1', createAdminModule(db, auth.middleware));
   app.use('/api/v1', readiness.router);
   app.use(
     '/api/v1',
-    createFaceModule({ db, auth: auth.middleware, recognition: faceRecognition, logger }),
+    createFaceModule({
+      db,
+      auth: auth.middleware,
+      recognition: faceRecognition,
+      logger,
+      service: faceService,
+    }),
   );
   // Event-day scanner endpoints: ADMIN of the event's organization, authorized per route. Scanning needs only the
   // provider (no storage); without one it answers 503 and never invents a match.

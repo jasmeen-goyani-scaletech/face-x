@@ -112,6 +112,10 @@ function PlayerWizard() {
           wording={w.consentWording}
           guardianSaved={registration !== null && registration.guardians.length > 0}
           consentRecorded={consentRequirement?.accepted === true}
+          faceWording={w.faceConsentWording}
+          faceRecorded={w.faceConsentRecorded}
+          faceChecked={w.faceConsentChecked}
+          onFaceChange={w.setFaceConsentChecked}
           locked={w.locked}
           saving={w.saving}
           saveError={w.saveError}

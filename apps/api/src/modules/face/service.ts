@@ -34,6 +34,27 @@ export interface FaceService {
     body: EnrollBody,
     meta: RequestMeta,
   ): Promise<FaceProfileStatusDto>;
+  /**
+   * Enrolls the player's photo right after an admin approved it. Not an authorized request of a family member, so it skips
+   * the ownership check but none of the others. It never throws: the answer says what happened.
+   */
+  enrollApprovedPhoto(input: {
+    playerId: string;
+    documentId: string;
+    /** The admin who approved the photo. */
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<'ENROLLED' | 'SKIPPED' | 'FAILED'>;
+  /**
+   * Enrolls a registration's approved photo right after the guardian accepted the face-scan consent (the photo was approved first and
+   * enrollment was waiting for consent). Same checks and same "never throws" answer as enrollApprovedPhoto; the family member who
+   * consented is recorded as the one who enrolled it.
+   */
+  enrollAfterConsent(input: {
+    registrationId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<'ENROLLED' | 'SKIPPED' | 'FAILED'>;
   getStatus(ctx: AuthContext, playerId: string): Promise<FaceProfileStatusDto>;
   remove(ctx: AuthContext, playerId: string, meta: RequestMeta): Promise<FaceProfileStatusDto>;
 }
@@ -108,142 +129,194 @@ export function createFaceService({
     if (!access || !access.isOwner) throw playerNotFound();
   }
 
-  return {
-    async enroll(ctx, playerId, body, meta) {
-      const cfg = requireRecognition();
-      if (cfg.consentPolicy === undefined) {
-        // Whether biometric consent is required is a product decision that has not been made: do not guess.
-        throw AppError.unavailable(
-          'FACE_CONSENT_POLICY_NOT_CONFIGURED',
-          'Face enrollment is not enabled until the biometric consent policy is configured',
-        );
-      }
-      const consentCode = cfg.consentPolicy;
-      await ownedPlayer(ctx, playerId);
+  async function enrollCore(
+    actorUserId: string,
+    playerId: string,
+    body: EnrollBody,
+    meta: RequestMeta,
+    /** Who may enroll this player: the owner for a request, nobody to ask for an admin's approval of the photo. */
+    authorize: () => Promise<void>,
+    automatic: boolean,
+  ): Promise<FaceProfileStatusDto> {
+    const cfg = requireRecognition();
+    if (cfg.consentPolicy === undefined) {
+      // Whether biometric consent is required is a product decision that has not been made: do not guess.
+      throw AppError.unavailable(
+        'FACE_CONSENT_POLICY_NOT_CONFIGURED',
+        'Face enrollment is not enabled until the biometric consent policy is configured',
+      );
+    }
+    const consentCode = cfg.consentPolicy;
+    await authorize();
 
-      // Set once the provider has created an identity, cleared once our database owns it. Whatever remains set when
-      // something fails is an orphan at the provider that we remove again.
-      let orphanReference: string | null = null;
-      try {
-        await repository.transaction(async (r) => {
-          await r.lockPlayerFace(playerId);
+    // Set once the provider has created an identity, cleared once our database owns it. Whatever remains set when
+    // something fails is an orphan at the provider that we remove again.
+    let orphanReference: string | null = null;
+    try {
+      await repository.transaction(async (r) => {
+        await r.lockPlayerFace(playerId);
+        if (await r.findActive(playerId)) {
+          throw AppError.conflict(
+            'FACE_PROFILE_ALREADY_EXISTS',
+            'This player already has a face profile',
+          );
+        }
+
+        const source = await r.findEnrollmentSource(playerId, body.documentId);
+        if (!source) throw AppError.notFound('DOCUMENT_NOT_FOUND', 'Photo not found');
+        if (
+          source.documentType !== 'PROFILE_PHOTO' ||
+          !source.uploaded ||
+          // An unreviewed photo could be anyone's face: only a photo an admin approved can become an identity.
+          source.documentStatus !== 'APPROVED' ||
+          FROZEN_REGISTRATION_STATUSES.includes(source.registrationStatus)
+        ) {
+          throw AppError.conflict(
+            'FACE_PHOTO_NOT_ELIGIBLE',
+            'Only an approved registration photo can be used for face enrollment',
+          );
+        }
+
+        let consentRecordId: string | null = null;
+        if (consentCode !== WAIVED_CONSENT) {
+          consentRecordId = await r.findCurrentConsentRecord(source.registrationId, consentCode);
+          if (!consentRecordId) {
+            throw AppError.conflict(
+              'BIOMETRIC_CONSENT_REQUIRED',
+              'The current biometric consent must be accepted before face enrollment',
+            );
+          }
+        }
+
+        const stored = await cfg.images
+          .read(source.storageKey, { maxBytes: MAX_PHOTO_BYTES })
+          .catch((e: unknown) => {
+            const err = AppError.unavailable('STORAGE_UNAVAILABLE', 'File storage is unavailable');
+            (err as { cause?: unknown }).cause = safeCause(e);
+            throw err;
+          });
+        if (!stored.exists) {
+          throw AppError.conflict('FACE_PHOTO_NOT_ELIGIBLE', 'The photo file is not available');
+        }
+        const mimeType = stored.tooLarge ? null : sniffContentType(stored.bytes);
+        if (stored.tooLarge || !mimeType || !FACE_IMAGE_TYPES.includes(mimeType)) {
+          throw new AppError(422, 'FACE_IMAGE_INVALID', 'The photo is not a usable image');
+        }
+
+        const attempt = (await r.countProfiles(playerId)) + 1;
+        const enrolled = await withDeadline(cfg.timeoutMs, (signal) =>
+          cfg.provider.enroll({
+            subjectId: playerId, // our id only: no name, date of birth or contact details go to the provider
+            image: { bytes: stored.bytes, mimeType: mimeType as FaceImageType },
+            idempotencyKey: `enroll:${playerId}:${source.documentId}:${attempt}`,
+            signal,
+          }),
+        ).catch((e: unknown) => {
+          throw providerError(e);
+        });
+        orphanReference = enrolled.reference;
+
+        const profileId = await r.insertProfile({
+          playerId,
+          provider: cfg.provider.name,
+          reference: enrolled.reference,
+          sourceDocumentId: source.documentId,
+          consentRecordId,
+          enrolledBy: actorUserId,
+        });
+        if (!profileId) {
           if (await r.findActive(playerId)) {
+            // Lost a race despite the lock: our identity is redundant and ours alone, so it is removed (below).
             throw AppError.conflict(
               'FACE_PROFILE_ALREADY_EXISTS',
               'This player already has a face profile',
             );
           }
-
-          const source = await r.findEnrollmentSource(playerId, body.documentId);
-          if (!source) throw AppError.notFound('DOCUMENT_NOT_FOUND', 'Photo not found');
-          if (
-            source.documentType !== 'PROFILE_PHOTO' ||
-            !source.uploaded ||
-            // An unreviewed photo could be anyone's face: only a photo an admin approved can become an identity.
-            source.documentStatus !== 'APPROVED' ||
-            FROZEN_REGISTRATION_STATUSES.includes(source.registrationStatus)
-          ) {
-            throw AppError.conflict(
-              'FACE_PHOTO_NOT_ELIGIBLE',
-              'Only an approved registration photo can be used for face enrollment',
-            );
-          }
-
-          let consentRecordId: string | null = null;
-          if (consentCode !== WAIVED_CONSENT) {
-            consentRecordId = await r.findCurrentConsentRecord(source.registrationId, consentCode);
-            if (!consentRecordId) {
-              throw AppError.conflict(
-                'BIOMETRIC_CONSENT_REQUIRED',
-                'The current biometric consent must be accepted before face enrollment',
-              );
-            }
-          }
-
-          const stored = await cfg.images
-            .read(source.storageKey, { maxBytes: MAX_PHOTO_BYTES })
-            .catch((e: unknown) => {
-              const err = AppError.unavailable(
-                'STORAGE_UNAVAILABLE',
-                'File storage is unavailable',
-              );
-              (err as { cause?: unknown }).cause = safeCause(e);
-              throw err;
-            });
-          if (!stored.exists) {
-            throw AppError.conflict('FACE_PHOTO_NOT_ELIGIBLE', 'The photo file is not available');
-          }
-          const mimeType = stored.tooLarge ? null : sniffContentType(stored.bytes);
-          if (stored.tooLarge || !mimeType || !FACE_IMAGE_TYPES.includes(mimeType)) {
-            throw new AppError(422, 'FACE_IMAGE_INVALID', 'The photo is not a usable image');
-          }
-
-          const attempt = (await r.countProfiles(playerId)) + 1;
-          const enrolled = await withDeadline(cfg.timeoutMs, (signal) =>
-            cfg.provider.enroll({
-              subjectId: playerId, // our id only: no name, date of birth or contact details go to the provider
-              image: { bytes: stored.bytes, mimeType: mimeType as FaceImageType },
-              idempotencyKey: `enroll:${playerId}:${source.documentId}:${attempt}`,
-              signal,
-            }),
-          ).catch((e: unknown) => {
-            throw providerError(e);
-          });
-          orphanReference = enrolled.reference;
-
-          const profileId = await r.insertProfile({
-            playerId,
-            provider: cfg.provider.name,
-            reference: enrolled.reference,
-            sourceDocumentId: source.documentId,
-            consentRecordId,
-            enrolledBy: ctx.userId,
-          });
-          if (!profileId) {
-            if (await r.findActive(playerId)) {
-              // Lost a race despite the lock: our identity is redundant and ours alone, so it is removed (below).
-              throw AppError.conflict(
-                'FACE_PROFILE_ALREADY_EXISTS',
-                'This player already has a face profile',
-              );
-            }
-            // The provider handed back a reference another profile already owns. That identity is not ours to delete.
-            orphanReference = null;
-            throw AppError.conflict(
-              'FACE_PROFILE_CONFLICT',
-              'The face profile could not be created',
-            );
-          }
-          await r.audit({
-            action: 'FACE_PROFILE_CREATED',
-            actorUserId: ctx.userId,
-            entityId: profileId,
-            // Ids and booleans only: no provider reference, no image, nothing biometric.
-            metadata: {
-              playerId,
-              documentId: source.documentId,
-              consentRecorded: consentRecordId !== null,
-            },
-            meta,
-          });
-        });
-        orphanReference = null;
-      } catch (err) {
-        if (orphanReference) {
-          const reference = orphanReference;
-          await withDeadline(cfg.timeoutMs, (signal) =>
-            cfg.provider.remove(reference, { signal }),
-          ).catch(() =>
-            // Never the reference or the error text: just that cleanup is needed.
-            logger.error(
-              { playerId },
-              'Could not remove an unsaved face identity at the provider; manual cleanup needed',
-            ),
-          );
+          // The provider handed back a reference another profile already owns. That identity is not ours to delete.
+          orphanReference = null;
+          throw AppError.conflict('FACE_PROFILE_CONFLICT', 'The face profile could not be created');
         }
-        throw err;
+        await r.audit({
+          action: 'FACE_PROFILE_CREATED',
+          actorUserId: actorUserId,
+          entityId: profileId,
+          // Ids and booleans only: no provider reference, no image, nothing biometric.
+          metadata: {
+            playerId,
+            documentId: source.documentId,
+            consentRecorded: consentRecordId !== null,
+            automatic,
+          },
+          meta,
+        });
+      });
+      orphanReference = null;
+    } catch (err) {
+      if (orphanReference) {
+        const reference = orphanReference;
+        await withDeadline(cfg.timeoutMs, (signal) =>
+          cfg.provider.remove(reference, { signal }),
+        ).catch(() =>
+          // Never the reference or the error text: just that cleanup is needed.
+          logger.error(
+            { playerId },
+            'Could not remove an unsaved face identity at the provider; manual cleanup needed',
+          ),
+        );
       }
-      return repository.getStatus(playerId);
+      throw err;
+    }
+    return repository.getStatus(playerId);
+  }
+
+  return {
+    enroll(ctx, playerId, body, meta) {
+      return enrollCore(ctx.userId, playerId, body, meta, () => ownedPlayer(ctx, playerId), false);
+    },
+
+    async enrollApprovedPhoto({ playerId, documentId, actorUserId, meta }) {
+      // Enrolling is only ever a consequence of an admin approving the photo, never of the photo alone: what is checked is the
+      // same as for a family's own request (approved photo, current biometric consent, one active profile), and an admin's
+      // approval is not blocked by any of it. "Skipped" is a normal answer (no consent given, already enrolled, face
+      // recognition off); a provider or image problem is logged for staff to see.
+      if (!recognition || recognition.consentPolicy === undefined) return 'SKIPPED';
+      try {
+        await enrollCore(actorUserId, playerId, { documentId }, meta, async () => undefined, true);
+        return 'ENROLLED';
+      } catch (err) {
+        if (
+          err instanceof AppError &&
+          [
+            'BIOMETRIC_CONSENT_REQUIRED',
+            'FACE_PROFILE_ALREADY_EXISTS',
+            'FACE_PHOTO_NOT_ELIGIBLE',
+          ].includes(err.code)
+        ) {
+          return 'SKIPPED';
+        }
+        logger.warn(
+          {
+            playerId,
+            code: err instanceof AppError ? err.code : 'UNEXPECTED',
+            cause: safeCause(err),
+          },
+          'Automatic face enrollment after photo approval did not complete',
+        );
+        return 'FAILED';
+      }
+    },
+
+    async enrollAfterConsent({ registrationId, actorUserId, meta }) {
+      const found = await repository
+        .findApprovedPhotoOfRegistration(registrationId)
+        .catch(() => null);
+      if (!found) return 'SKIPPED';
+      return this.enrollApprovedPhoto({
+        playerId: found.playerId,
+        documentId: found.documentId,
+        actorUserId,
+        meta,
+      });
     },
 
     async getStatus(ctx, playerId) {

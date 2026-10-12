@@ -118,8 +118,12 @@ export function useScannerCamera() {
 
   const retry = useCallback(() => start(facing), [facing, start]);
 
-  /** A JPEG of the visible frame (a cover-crop of the video, as shown), or null if there is no picture yet. */
-  const capture = useCallback((): string | null => {
+  /**
+   * A JPEG of the visible frame (a cover-crop of the video, as shown), or null if there is no picture yet. A front camera is shown
+   * mirrored, like a mirror, and the picture matches the screen by default; `mirror: false` saves it the way the world is (the way a
+   * face is compared), whatever the preview shows.
+   */
+  const capture = useCallback((options: { mirror?: boolean } = {}): string | null => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return null;
     const frameW = frameRef.current?.clientWidth || video.videoWidth;
@@ -136,7 +140,9 @@ export function useScannerCamera() {
     canvas.height = outH;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    if (mirrored) {
+    // The video element's pixels are never mirrored (the preview is mirrored with CSS), so the natural picture needs no flip at all;
+    // the on-screen look needs one on a front camera.
+    if (mirrored && (options.mirror ?? true)) {
       ctx.translate(outW, 0);
       ctx.scale(-1, 1);
     }

@@ -270,8 +270,22 @@ Decisions and caveats (confirm with the client):
 
 ## Face recognition foundation (Phase 4D-A, implemented: enrollment only)
 
-Provider-independent. **No real provider is integrated or chosen, and no stand-in ships in production code** (a fake exists only in the tests).
-Event-day matching, the scanner, check-in, manual fallback, twins/duplicates and retention are not part of this phase.
+Provider-independent. One real provider is registered, **`node-native`** (`infrastructure/face/providers/node-native.provider.ts`): face-api
+(`@vladmandic/face-api`) on its pure-JS/WASM TensorFlow backend, running inside this API in a worker thread, with `sharp` decoding the image. No
+cloud service, no native module, no Python; the model weights ship in the npm package. A fake exists only in the tests.
+- **Templates.** A face_profiles row still holds only the opaque reference. The 128-number descriptor lives in `face_templates`, owned by the adapter:
+  `nonce || AES-256-GCM ciphertext || tag` under `FACE_ENCRYPTION_KEY`, with the reference as authenticated data, so a row cannot be moved to another
+  reference. Removing a profile deletes the template. No endpoint returns it. Losing the key makes every enrolled face unreadable (re-enroll).
+- **Enrollment.** Automatic when an admin approves a player's PROFILE_PHOTO, if face recognition is configured and the guardian accepted the optional
+  `BIOMETRIC_CONSENT` (`FACE_CONSENT_CODE`); otherwise skipped and the player is checked in by hand. The approval never fails because of it. If the guardian
+  consents AFTER the photo was approved, recording the consent enrolls that photo at once (the consent never fails because of it either). A family can
+  still enroll explicitly (`POST /players/:id/face-profile`). The consent is optional and never holds a registration back; its approved wording is
+  published by migration `20261013000002_biometric_consent_wording.sql` (consent text is immutable: a new wording is a new version).
+- **Matching.** Euclidean distance between descriptors, mapped to the 0..1 similarity the shared policy uses (0.4 -> 0.90, 0.6 -> 0.75); only ACTIVE
+  profiles are searched. At the door one dominant face is scanned (several similar faces: `MULTIPLE_FACES`); enrollment requires exactly one.
+- **Scanner.** `AdminScanScreen` sends the camera frame, in natural (un-mirrored) orientation even from a front camera, to `POST /events/:id/face-scan` and, only for a clear MATCH of someone cleared to enter, checks in with
+  `{method:"FACE", scanId}`. A doubtful match is shown to staff and confirmed as a manual check-in.
+Twins/duplicates and retention are not part of this phase.
 
 ```text
 application (modules/face) -> FaceRecognitionProvider (infrastructure/face/face-provider.ts) -> one adapter file per provider (later)

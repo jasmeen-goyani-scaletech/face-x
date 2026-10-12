@@ -578,6 +578,26 @@ export interface ApiCheckIn {
   checkedInAt: string;
 }
 
+/** A person a face scan could not settle alone: shown to staff, who confirm by comparing the on-file photo. */
+export interface ApiFaceScanCandidate {
+  registrationId: string;
+  registrationNumber: string;
+  displayName: string;
+}
+
+/** What the server says about one photo of someone at the door. */
+export type ApiFaceScan =
+  | { scanId: string; result: 'NO_MATCH' }
+  | { scanId: string; result: 'REVIEW_REQUIRED'; reason: string; candidates: ApiFaceScanCandidate[]; eligibility?: string[] }
+  | {
+      scanId: string;
+      result: 'MATCH';
+      /** The scan can be used to check in until this time. */
+      expiresAt: string;
+      registration: { registrationId: string; registrationNumber: string; firstName: string; lastName: string };
+      alreadyCheckedIn: boolean;
+    };
+
 export interface ApiEventSummary {
   eventId: string;
   registrationsByStatus: Record<ApiRegistrationStatus, number>;

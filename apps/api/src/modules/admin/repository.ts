@@ -49,7 +49,10 @@ export interface AdminRepository {
   /** Events owned by an organization, newest first, every status. */
   listEvents(organizationId: string): Promise<AdminEvent[]>;
   /** One page of the organization's events, newest first (the same order as `listEvents`). */
-  listEventsPage(organizationId: string, query: { page: number; pageSize: number }): Promise<Page<AdminEvent>>;
+  listEventsPage(
+    organizationId: string,
+    query: { page: number; pageSize: number },
+  ): Promise<Page<AdminEvent>>;
   findEvent(eventId: string): Promise<AdminEvent | null>;
   insertEvent(
     organizationId: string,
@@ -240,7 +243,12 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
           order by starts_at desc, id limit $2 offset $3`,
         [organizationId, pageSize, (page - 1) * pageSize],
       );
-      return { items: rows.map(toAdminEvent), page, pageSize, total: Number(total.rows[0]?.n ?? 0) };
+      return {
+        items: rows.map(toAdminEvent),
+        page,
+        pageSize,
+        total: Number(total.rows[0]?.n ?? 0),
+      };
     },
 
     async findEvent(eventId) {

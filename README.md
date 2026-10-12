@@ -268,7 +268,8 @@ decisions: `docs/architecture.md` ("Event-day check-in").
 | `STORAGE_ENDPOINT`, `STORAGE_REGION`, `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY`, `STORAGE_BUCKET`, `STORAGE_FORCE_PATH_STYLE` | not yet | private S3-compatible bucket; set access key, secret and bucket together; used from the documents phase |
 | `NODE_ENV`, `PORT`, `LOG_LEVEL`, `DATABASE_POOL_MAX` | no | |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | for payments | backend only; without them payment endpoints answer 503 |
-| `FACE_PROVIDER`, `FACE_CONSENT_CODE`, `FACE_PROVIDER_TIMEOUT_MS`, `FACE_PROVIDER_API_KEY`, `FACE_PROVIDER_URL` | not yet | face enrollment stays disabled until a provider adapter exists and the consent policy is set (`NONE` waives it explicitly) |
+| `FACE_PROVIDER` (`node-native`), `FACE_ENCRYPTION_KEY`, `FACE_CONSENT_CODE` (`BIOMETRIC_CONSENT`), `FACE_PROVIDER_TIMEOUT_MS` | for face matching | `node-native` runs face-api inside the API (no cloud, no native build); `FACE_ENCRYPTION_KEY` is 32 random bytes, base64, used to encrypt stored face templates (required with `node-native`). Enrollment stays disabled until the consent policy is set (`NONE` waives it explicitly) |
+| `FACE_PROVIDER_API_KEY`, `FACE_PROVIDER_URL` | no | reserved for hosted providers; unused by `node-native` |
 | `FACE_MATCH_THRESHOLD`, `FACE_REVIEW_THRESHOLD`, `FACE_AMBIGUITY_MARGIN`, `FACE_SCAN_TIMEOUT_MS` | no | event-day matching policy; provisional defaults 0.90 / 0.75 / 0.05 / 5000. Calibrate against the chosen provider |
 
 The API refuses to start, and lists the offending variable names (never their values), if a required one is invalid.

@@ -88,9 +88,10 @@ registration status in PostgreSQL, and that the logs hold no keys, signatures or
 
 ## 4. Event-day scanning: two separate product decisions
 
-- **Face recognition: no provider exists.** `FACE_PROVIDER` selects an adapter from `apps/api/src/infrastructure/face/provider-registry.ts`, which has none, so enrollment and scanning
-  answer 503 and the scanner says "Face matching isn't enabled" and points to manual search. Decisions needed: which provider and region (minors' biometric data), the biometric consent
-  wording and code (`FACE_CONSENT_CODE`), match/review thresholds calibrated against that provider (`FACE_MATCH_THRESHOLD`, `FACE_REVIEW_THRESHOLD`, `FACE_AMBIGUITY_MARGIN`), and retention.
+- **Face recognition: the `node-native` provider is built (face-api on WASM, inside the API); it is not calibrated.** Set `FACE_PROVIDER=node-native`, `FACE_ENCRYPTION_KEY`
+  (back it up: without it every enrolled face is unreadable) and `FACE_CONSENT_CODE=BIOMETRIC_CONSENT`. The approved biometric consent wording is published by migration `20261013000002`. Decisions still needed:
+  match/review thresholds calibrated on real event photos (`FACE_MATCH_THRESHOLD`, `FACE_REVIEW_THRESHOLD`, `FACE_AMBIGUITY_MARGIN`; the mapping puts face-api distance 0.4 at 0.90 and 0.6 at 0.75), whether
+  photos from a mirrored front camera and an un-mirrored one must match (they match less closely), retention, and capacity (a scan costs about half a second of one CPU core; scans queue behind each other).
 - **QR check-in: not built.** There is no QR generation or scanner. Decisions needed: what the code encodes (a signed, expiring token is safer than a registration number), where families get it
   (dashboard, email, wallet pass), what the scanner reads it with, and whether it must work offline.
 - Manual search, the eligibility rules and the offline queue are implemented and were verified (see the end-to-end report).

@@ -37,7 +37,10 @@ import type {
 export interface AdminService {
   /** The events of the caller's organization (none for an admin who has no organization). */
   listEvents(ctx: AuthContext): Promise<AdminEvent[]>;
-  listEventsPage(ctx: AuthContext, query: { page: number; pageSize: number }): Promise<Page<AdminEvent>>;
+  listEventsPage(
+    ctx: AuthContext,
+    query: { page: number; pageSize: number },
+  ): Promise<Page<AdminEvent>>;
   summary(eventId: string, registrantType: RegistrantType): Promise<EventSummary>;
   getEvent(eventId: string): Promise<AdminEvent>;
   createEvent(ctx: AuthContext, body: CreateEventBody, meta: RequestMeta): Promise<AdminEvent>;
@@ -66,7 +69,10 @@ export interface AdminService {
   /** Everyone on the event's day-of roster (registered and not turned down), with check-in state. */
   roster(eventId: string): Promise<EventRosterEntry[]>;
   /** One page of the same roster, with the size of the whole roster. */
-  rosterPage(eventId: string, query: { page: number; pageSize: number }): Promise<Page<EventRosterEntry>>;
+  rosterPage(
+    eventId: string,
+    query: { page: number; pageSize: number },
+  ): Promise<Page<EventRosterEntry>>;
   listRegistrations(
     eventId: string,
     query: ListRegistrationsQuery,

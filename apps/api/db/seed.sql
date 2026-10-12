@@ -25,6 +25,7 @@ insert into public.consents (id, code, version, title, body) values
    '[DEV PLACEHOLDER - NOT LEGAL TEXT] I am the parent or legal guardian and I consent to this player taking part in the event.'),
   ('00000000-0000-4000-8000-000000000031', 'AB506_ACKNOWLEDGEMENT', 1, '[DEV PLACEHOLDER] AB 506 acknowledgement',
    '[DEV PLACEHOLDER - NOT LEGAL TEXT] Coach/staff acknowledgement of the AB 506 requirements.');
+-- (BIOMETRIC_CONSENT v1, with the approved wording, is published by migration 20261013000002, not by this seed.)
 
 -- One guardian with two children (demonstrates the shared-parent model).
 insert into public.parents (id, first_name, last_name, email, phone) values

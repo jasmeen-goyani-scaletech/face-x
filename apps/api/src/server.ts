@@ -37,7 +37,7 @@ function main(): void {
   if (!env.STRIPE_SECRET_KEY) logger.warn('STRIPE_SECRET_KEY is not set: payments are disabled');
   else if (!env.STRIPE_WEBHOOK_SECRET)
     logger.warn('STRIPE_WEBHOOK_SECRET is not set: payments cannot be confirmed');
-  const faceProvider = createFaceProvider(env.FACE_PROVIDER, env);
+  const faceProvider = createFaceProvider(env.FACE_PROVIDER, env, { db });
   if (env.FACE_PROVIDER && !faceProvider) {
     logger.error(
       { provider: env.FACE_PROVIDER },
