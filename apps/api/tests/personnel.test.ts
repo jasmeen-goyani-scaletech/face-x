@@ -392,7 +392,6 @@ describe('documents for coach and staff', () => {
     const p = await person('COACH');
     const id = await sendDocument(p, 'FIRST_AID_CPR');
     const other = await createUser(db, { roles: ['COACH'] });
-    expect((await as(app, other.id).get(`${D}/${id}`)).status).toBe(404);
     expect((await as(app, other.id).get(`${D}/${id}/download-url`)).status).toBe(404);
     expect(
       (await as(app, other.id).post(`${R}/${p.regId}/documents/upload-url`, docBody('YALF_TACKLE')))

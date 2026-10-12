@@ -5,7 +5,7 @@ const digits = (value: string) => value.replace(/[^\d+]/g, '') || null;
 
 export interface ContactOptions {
   minor: boolean;
-  /** The player's own number, ready for tel: / sms:, or null if there is none. */
+  /** The player's own number, ready for tel:, or null if there is none. */
   playerPhone: string | null;
   /** The parent's number, or null if there is none. Always null for an adult, who has no parent to call. */
   parentPhone: string | null;

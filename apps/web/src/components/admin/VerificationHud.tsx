@@ -2,7 +2,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import { AlertTriangleIcon, CheckIcon } from '@/components/ui/Icons';
-import { formatDate, formatTime, initialsOf } from '@/lib/format';
+import { formatDate, formatFullDateTime, formatWhen, initialsOf, checkInVia } from '@/lib/format';
 import { checkInStatus } from '@/lib/faceMatcher';
 import { useEntryPhoto } from '@/lib/admin/useApiRoster';
 import type { RosterEntry } from '@/lib/seed';
@@ -68,7 +68,7 @@ export default function VerificationHud({
           <div>
             <div className="text-sm font-bold text-warning">Already checked in</div>
             <p className="m-0 mt-0.5 text-[13px] text-ink-soft">
-              At {formatTime(entry.checkedInAt)} via {entry.checkedInMethod}
+              At <span title={formatFullDateTime(entry.checkedInAt)}>{formatWhen(entry.checkedInAt)}</span> via {checkInVia(entry)}
               {entry.checkedInOverride ? ' (admin override)' : ''}. Duplicate check-in is blocked.
             </p>
           </div>

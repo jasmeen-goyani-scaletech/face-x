@@ -187,6 +187,82 @@ console.log('\n== A. Authentication and authorization');
   check('admin lists own events -> 200', r.status === 200 && Array.isArray(r.json.data), r.status);
   r = await web('/players', { token: admin.token });
   check('admin on a family endpoint -> 403', r.status === 403, r.status);
+
+  // Paging. The plain event lists stop at 100; the screens read pages, so pages must reach every row. This organization gains
+  // events on every run, so these checks hold however many it has by now.
+  const walk = async (path, token) => {
+    const items = [];
+    for (let page = 1; ; page += 1) {
+      const x = await web(`${path}?page=${page}&pageSize=100`, { token });
+      if (x.status !== 200) return { status: x.status, items, total: 0 };
+      items.push(...x.json.data.items);
+      if (items.length >= x.json.data.total || x.json.data.items.length === 0) return { status: 200, items, total: x.json.data.total };
+    }
+  };
+  r = await web('/admin/events?page=1&pageSize=1', { token: admin.token });
+  const evTotal = r.json?.data?.total;
+  check(
+    'admin events: one page is { items, page, pageSize, total }',
+    r.status === 200 && r.json.data.items.length === 1 && r.json.data.page === 1 && r.json.data.pageSize === 1 && evTotal >= 3,
+    JSON.stringify(r.json).slice(0, 160)
+  );
+  const plainEvents = await web('/admin/events', { token: admin.token });
+  check(
+    'admin events: the plain list is still an array (the first 100)',
+    Array.isArray(plainEvents.json.data) && plainEvents.json.data.length === Math.min(100, evTotal),
+    `${plainEvents.json.data?.length} of ${evTotal}`
+  );
+  const evAll = await walk('/admin/events', admin.token);
+  const evIds = evAll.items.map((e) => e.id);
+  check(
+    'admin events: the pages together reach every event, once each',
+    evAll.items.length === evTotal && new Set(evIds).size === evTotal && [evFree, evPaid, evDraft].every((id) => evIds.includes(id)),
+    `${evAll.items.length}/${evTotal}`
+  );
+  r = await web('/admin/teams?page=1&pageSize=1', { token: admin.token });
+  check(
+    'admin teams (all events): one page is { items, page, pageSize, total }',
+    r.status === 200 && r.json.data.items.length === 1 && r.json.data.pageSize === 1 && r.json.data.total >= 2,
+    JSON.stringify(r.json).slice(0, 160)
+  );
+  const teamAll = await walk('/admin/teams', admin.token);
+  const teamIds = teamAll.items.map((t) => t.id);
+  check(
+    'admin teams: the pages reach every team once, each belonging to one of the organization\'s events',
+    teamAll.items.length === teamAll.total && new Set(teamIds).size === teamAll.total && teamAll.items.every((t) => evIds.includes(t.eventId)) &&
+      teamIds.includes(teamFree.id) && teamIds.includes(teamPaid.id),
+    `${teamAll.items.length}/${teamAll.total}`
+  );
+  const perEvent = await web(`/admin/events/${evFree}/teams`, { token: admin.token });
+  check(
+    'admin teams: the per-event list still works and agrees with the paged one',
+    perEvent.status === 200 && perEvent.json.data.length >= 1 && perEvent.json.data.every((t) => teamIds.includes(t.id)),
+    perEvent.status
+  );
+  for (const q of ['/admin/events?page=0', '/admin/events?pageSize=101', '/admin/teams?page=0', '/admin/teams?pageSize=101', '/admin/teams?search=x']) {
+    r = await web(q, { token: admin.token });
+    check(`bad paging ${q} -> 422`, r.status === 422, r.status);
+  }
+  r = await web('/admin/teams?page=1', { token: parent0.token });
+  check('admin teams: a parent -> 403', r.status === 403, r.status);
+
+  // The public list the registration pickers read: PUBLISHED events only, reachable in full through pages.
+  const plainOpen = await web('/events', { token: parent0.token });
+  const openAll = await walk('/events', parent0.token);
+  const openIds = openAll.items.map((e) => e.id);
+  check(
+    'public events: the plain list is still an array of at most 100',
+    Array.isArray(plainOpen.json.data) && plainOpen.json.data.length <= 100,
+    plainOpen.json.data?.length
+  );
+  check(
+    'public events: the pages reach every open event, once each; a draft never appears',
+    openAll.items.length === openAll.total && new Set(openIds).size === openAll.total && openIds.includes(evFree) && openIds.includes(evPaid) &&
+      !openIds.includes(evDraft) && openAll.items.every((e) => e.status === 'PUBLISHED' && e.registrationOpen === true),
+    `${openAll.items.length}/${openAll.total}`
+  );
+  r = await web('/events?pageSize=101', { token: parent0.token });
+  check('public events: bad paging -> 422', r.status === 422, r.status);
   r = await web('/users/me/roles', {
     method: 'POST',
     token: parent0.token,
@@ -590,8 +666,9 @@ let playerId,
     body: {},
   });
   check('submitting a document twice -> 409', r.status === 409, r.status);
-  r = await web(`/documents/${docIds.BIRTH_CERTIFICATE}`, { token: parent.token });
-  check('submitted doc is IN_REVIEW', r.json.data.state === 'IN_REVIEW', r.json.data.state);
+  r = await web(`/registrations/${regId}/documents`, { token: parent.token });
+  const submitted = r.json.data?.documents?.find((d) => d.id === docIds.BIRTH_CERTIFICATE);
+  check('submitted doc is IN_REVIEW', submitted?.state === 'IN_REVIEW', JSON.stringify(submitted ?? r.json));
   r = await up('BIRTH_CERTIFICATE', 'again.pdf', 'application/pdf', 100);
   check(
     'replacing a document that is in review -> 409 DOCUMENT_IN_REVIEW',

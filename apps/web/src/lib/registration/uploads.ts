@@ -3,10 +3,30 @@ import { completeUpload, putToStorage, requestUpload } from '@/lib/api/documents
 import type { ApiDocument, ApiDocumentType } from '@/lib/api/types';
 import { DOCUMENT_TYPE_BY_KEY, type PlayerDocumentKey } from './documentMap';
 
-const MAX_IMAGE_EDGE = 1600;
-const JPEG_QUALITY = 0.85;
+/**
+ * Size limits, mirroring the API (infrastructure/storage/file-storage.ts), so a file that would be refused is caught before
+ * any bytes are sent. The API remains the authority.
+ */
+const MAX_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_DOCUMENT_IMAGE_BYTES = 3 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
+/** Photos of documents are squeezed only until they are about this size. Smaller is not worth any loss of detail. */
+const TARGET_IMAGE_BYTES = 800 * 1024;
+/**
+ * Compression steps, gentlest first. The last one is the floor: a 1200px-long-edge JPEG at 0.7 still keeps ID numbers and small
+ * print legible. If the file is still over the limit the person is asked for a better photo; quality is never cut further.
+ */
+const COMPRESSION_STEPS = [
+  { edge: 1600, quality: 0.85 },
+  { edge: 1600, quality: 0.75 },
+  { edge: 1400, quality: 0.72 },
+  { edge: 1200, quality: 0.7 }
+];
 /** The API accepts these for the player photo (images only) and for documents (PDF, JPEG, PNG). */
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+const tooLarge = (limit: number) =>
+  new ApiError(400, 'FILE_TOO_LARGE', `This file is too large (the limit is ${Math.round(limit / (1024 * 1024))} MB).`);
 
 export interface PreparedFile {
   blob: Blob;
@@ -33,33 +53,52 @@ function loadImage(file: Blob): Promise<HTMLImageElement> {
 const swapExtension = (name: string, ext: string) => `${name.replace(/\.[^./\\]+$/, '') || 'photo'}.${ext}`;
 
 /**
- * Gets a picked or captured file ready to send. Photos are re-encoded as JPEG with the long edge capped at 1600px: that
- * keeps uploads fast and well under the API's size limit, and it also drops metadata such as GPS location. PDFs go as they are.
- * If a photo can't be decoded by the browser it is sent unchanged when its type is one the API accepts; otherwise it is refused.
+ * Gets a picked or captured file ready to send. Photos are re-encoded as JPEG (long edge capped, quality stepped down only until
+ * the file is small enough), which keeps uploads fast and also drops metadata such as GPS location. PDFs are never re-rendered,
+ * so they stay valid and sharp; they are only checked against the size limit. If a photo can't be decoded by the browser it is
+ * sent unchanged when its type is one the API accepts and it fits the limit; otherwise it is refused.
  */
-export async function prepareFile(file: File | Blob, fileName: string): Promise<PreparedFile> {
+export async function prepareFile(file: File | Blob, fileName: string, isProfilePhoto = false): Promise<PreparedFile> {
   const type = file.type || 'application/octet-stream';
-  if (type === 'application/pdf') return { blob: file, fileName, mimeType: 'application/pdf' };
+  if (type === 'application/pdf' && !isProfilePhoto) {
+    if (file.size > MAX_PDF_BYTES) throw tooLarge(MAX_PDF_BYTES);
+    return { blob: file, fileName, mimeType: 'application/pdf' };
+  }
+  const limit = isProfilePhoto ? MAX_PHOTO_BYTES : MAX_DOCUMENT_IMAGE_BYTES;
 
   if (type.startsWith('image/')) {
     try {
       const img = await loadImage(file);
-      const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(img.width * scale));
-      canvas.height = Math.max(1, Math.round(img.height * scale));
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
+      let best: Blob | null = null;
+      for (const step of COMPRESSION_STEPS) {
+        const scale = Math.min(1, step.edge / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) break;
         ctx.fillStyle = '#fff'; // JPEG has no transparency
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
-        if (blob && blob.size > 0) return { blob, fileName: swapExtension(fileName, 'jpg'), mimeType: 'image/jpeg' };
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', step.quality));
+        if (!blob || blob.size === 0) break;
+        best = blob;
+        if (blob.size <= TARGET_IMAGE_BYTES) break;
       }
-    } catch {
+      if (best) {
+        // Re-encoding an already small JPEG can make it bigger: keep the original then.
+        if (type === 'image/jpeg' && file.size <= best.size && file.size <= limit) return { blob: file, fileName, mimeType: type };
+        if (best.size > limit) throw tooLarge(limit);
+        return { blob: best, fileName: swapExtension(fileName, 'jpg'), mimeType: 'image/jpeg' };
+      }
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
       // fall through to the unchanged-file check below
     }
-    if (ACCEPTED_IMAGE_TYPES.includes(type)) return { blob: file, fileName, mimeType: type };
+    if (ACCEPTED_IMAGE_TYPES.includes(type) && (isProfilePhoto || type !== 'image/webp')) {
+      if (file.size > limit) throw tooLarge(limit);
+      return { blob: file, fileName, mimeType: type };
+    }
   }
   throw new ApiError(400, 'FILE_TYPE_NOT_ALLOWED', 'This file type is not allowed');
 }
@@ -94,7 +133,7 @@ export async function uploadRegistrationDocument(
   onProgress: (percent: number) => void
 ): Promise<ApiDocument> {
   onProgress(1);
-  const prepared = await prepareFile(file, fileName);
+  const prepared = await prepareFile(file, fileName, documentType === 'PROFILE_PHOTO');
   let pending: ApiDocument | null = null;
   for (let attempt = 1; pending === null; attempt++) {
     const issued = await requestUpload(registrationId, {

@@ -77,13 +77,14 @@ class CheckInRefused extends AppError {
     message: string,
     public readonly refusal: { registrationId?: string; scanId?: string },
     reasons?: readonly string[],
+    /** Plain facts the caller may use (e.g. when the winning check-in happened), sent as details next to the reasons. */
+    facts?: Record<string, string>,
   ) {
-    super(
-      status,
-      code,
-      message,
-      reasons?.map((r) => ({ path: 'reason', message: r })),
-    );
+    const details = [
+      ...(reasons ?? []).map((r) => ({ path: 'reason', message: r })),
+      ...Object.entries(facts ?? {}).map(([path, value]) => ({ path, message: value })),
+    ];
+    super(status, code, message, details.length > 0 ? details : undefined);
     this.name = 'CheckInRefused';
   }
 }
@@ -182,8 +183,9 @@ export function createEventDayService({
     message: string,
     refusal: { registrationId?: string; scanId?: string } = {},
     reasons?: readonly string[],
+    facts?: Record<string, string>,
   ): never {
-    throw new CheckInRefused(status, code, message, refusal, reasons);
+    throw new CheckInRefused(status, code, message, refusal, reasons, facts);
   }
 
   function notEligible(
@@ -307,7 +309,16 @@ export function createEventDayService({
       if (scanId && (await r.findCheckInByScan(scanId))) {
         refuse(409, 'SCAN_ALREADY_USED', 'This scan was already used', { registrationId, scanId });
       }
-      refuse(409, 'ALREADY_CHECKED_IN', 'This player is already checked in', { registrationId });
+      // Who won is not revealed, only that and when it happened, so a device can show the person as checked in at the true time.
+      const winner = await r.findCheckInByRegistration(registrationId);
+      refuse(
+        409,
+        'ALREADY_CHECKED_IN',
+        'This player is already checked in',
+        { registrationId },
+        undefined,
+        winner ? { checkedInAt: winner.checkedInAt, method: winner.method } : undefined,
+      );
     }
 
     await r.audit({
@@ -321,6 +332,8 @@ export function createEventDayService({
         playerId: eligibility.registration!.playerId,
         method: body.method,
         scanId,
+        ...(body.deviceId ? { deviceId: body.deviceId } : {}),
+        ...(body.deviceCheckedInAt ? { deviceCheckedInAt: body.deviceCheckedInAt } : {}),
       },
       meta,
     });

@@ -16,6 +16,14 @@ export async function login(input: { email: string; password: string }): Promise
 
 /** Ends the session server-side (revokes the refresh token) and here. Always signs out locally, even if the call fails. */
 export async function logout(): Promise<void> {
+  // The event-day roster this device holds is people's details: it goes BEFORE the session ends, so there is never a moment when the
+  // admin is signed out and it is still on the device. (Check-ins still waiting to be sent stay in their queue, for this same admin's
+  // next sign-in.) Loaded on demand, so pages that never touch event-day work do not carry the offline database code.
+  try {
+    await import('../offline/rosterCache').then((m) => m.clearRosterCache());
+  } catch {
+    // nothing stored, or storage unavailable: there is nothing to remove
+  }
   try {
     await apiRequest<void>('/auth/logout', { method: 'POST', auth: false });
   } finally {

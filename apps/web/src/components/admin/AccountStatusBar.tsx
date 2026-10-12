@@ -1,7 +1,7 @@
 import Chip from '@/components/ui/Chip';
 import type { AccessState, RegistrationState } from '@/lib/accessCompliance';
 
-export type PaymentState = 'complete' | 'incomplete' | 'failed';
+export type PaymentState = 'complete' | 'incomplete' | 'failed' | 'unknown';
 
 /**
  * The account's standing, on one line in the profile header:
@@ -33,7 +33,7 @@ export default function AccountStatusBar({
       </Chip>
       {payment && (
         <Chip compact kind={payment === 'complete' ? 'success' : payment === 'failed' ? 'danger' : 'warning'}>
-          Payment: {payment === 'complete' ? 'Complete' : payment === 'failed' ? 'Failed' : 'Pending'}
+          Payment: {payment === 'complete' ? 'Complete' : payment === 'failed' ? 'Failed' : payment === 'unknown' ? 'Unavailable' : 'Pending'}
         </Chip>
       )}
       {flags.length > 0 ? (

@@ -47,7 +47,6 @@ describe('authentication', () => {
     ['get', `${V1}/events`],
     ['get', `${V1}/events/${randomUUID()}`],
     ['get', `${V1}/events/${randomUUID()}/teams`],
-    ['get', `${V1}/teams/${randomUUID()}`],
     ['post', `${V1}/teams/resolve-invite`],
   ] as const)('%s %s needs a signed-in user', async (method, path) => {
     const res = await request(app)[method](path);
@@ -83,6 +82,72 @@ describe('GET /events', () => {
     const res = await as(app, viewer).get(`${V1}/events`);
     const ids = (res.body.data as { id: string }[]).map((e) => e.id);
     expect(ids.indexOf(sooner)).toBeLessThan(ids.indexOf(later));
+  });
+});
+
+describe('GET /events with paging', () => {
+  it('the plain list is unchanged (an array, the first 100), and unknown parameters are still ignored', async () => {
+    // Other test files add open events to this shared database at the same time, so two reads are not compared for equality.
+    const plain = await as(app, viewer).get(`${V1}/events`);
+    expect(Array.isArray(plain.body.data)).toBe(true);
+    expect(plain.body.data.length).toBeLessThanOrEqual(100);
+    expect(plain.body.data.map((e: { id: string }) => e.id)).toContain(published);
+    const ignored = await as(app, viewer).get(`${V1}/events?whatever=1`);
+    expect(ignored.status).toBe(200);
+    expect(Array.isArray(ignored.body.data)).toBe(true); // still the plain list, not a page
+    expect(ignored.body.data.map((e: { id: string }) => e.id)).toContain(published);
+  });
+
+  it('reaches every open event when there are more than 100: pages cover them all, once each, soonest first', async () => {
+    const day = 86_400_000;
+    const other = await createOrg(db);
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.events (organization_id, name, location, timezone, starts_at, ends_at, registration_fee_cents, status)
+       select $1, 'Bulk ' || n, 'Field', 'America/Los_Angeles', to_timestamp($2::bigint / 1000.0 + n * 86400),
+              to_timestamp($2::bigint / 1000.0 + n * 86400 + 10800), 0, 'PUBLISHED'
+         from generate_series(1, 130) n returning id`,
+      [other, Date.now() + 400 * day],
+    );
+    const bulk = new Set(rows.map((r) => r.id));
+
+    // The plain list stops at 100: it is the compatibility form, and cannot reach the later events.
+    const plain = await as(app, viewer).get(`${V1}/events`);
+    expect(plain.body.data).toHaveLength(100);
+    expect(plain.body.data.filter((e: { id: string }) => bulk.has(e.id)).length).toBeLessThan(130);
+
+    // This database is shared with other test files that also add open events, so a row can move between pages while the
+    // pages are read one after another. Rows seen twice are collapsed; what must hold is that none of ours is missing.
+    const first = await as(app, viewer).get(`${V1}/events?page=1&pageSize=100`);
+    expect(first.status).toBe(200);
+    expect(first.body.data.total).toBeGreaterThanOrEqual(130);
+    const pages = Math.ceil(first.body.data.total / 100);
+    const seen: { id: string; startsAt: string; status: string }[] = [...first.body.data.items];
+    for (let page = 2; page <= pages; page += 1) {
+      seen.push(...(await as(app, viewer).get(`${V1}/events?page=${page}&pageSize=100`)).body.data.items);
+    }
+    const all = [...new Map(seen.map((e) => [e.id, e])).values()];
+    for (const id of bulk) expect(all.map((e) => e.id)).toContain(id); // none of the 130 is unreachable
+    expect(all.length).toBeGreaterThanOrEqual(130);
+    expect(all.every((e) => e.status === 'PUBLISHED')).toBe(true); // closed and draft events never appear
+    expect(all.map((e) => e.id)).not.toContain(closed);
+    expect(all.map((e) => e.id)).not.toContain(draft);
+    const starts = all.map((e) => Date.parse(e.startsAt));
+    expect([...starts].sort((x, y) => x - y)).toEqual(starts); // soonest first across the page boundary
+  });
+
+  it('a page without the other parameter takes its default, a page past the end is empty, and bad paging is 422', async () => {
+    const onlySize = await as(app, viewer).get(`${V1}/events?pageSize=2`);
+    expect(onlySize.body.data).toMatchObject({ page: 1, pageSize: 2 });
+    expect(onlySize.body.data.items).toHaveLength(2);
+    const onlyPage = await as(app, viewer).get(`${V1}/events?page=1`);
+    expect(onlyPage.body.data).toMatchObject({ page: 1, pageSize: 25 });
+    const beyond = await as(app, viewer).get(`${V1}/events?page=99999&pageSize=100`);
+    expect(beyond.body.data.items).toEqual([]);
+    expect(beyond.body.data.total).toBeGreaterThan(0);
+    for (const q of ['page=0', 'pageSize=0', 'pageSize=101', 'page=abc']) {
+      expect((await as(app, viewer).get(`${V1}/events?${q}`)).status, q).toBe(422);
+    }
+    expect((await request(app).get(`${V1}/events?page=1`)).status).toBe(401);
   });
 });
 
@@ -135,28 +200,6 @@ describe('GET /events/:eventId/teams', () => {
     const res = await as(app, viewer).get(`${V1}/events/${closed}/teams`);
     expect(res.status).toBe(200);
     expect(res.body.data).toEqual([]);
-  });
-});
-
-describe('GET /teams/:teamId', () => {
-  it('returns the team with its event, without the invite code', async () => {
-    const res = await as(app, viewer).get(`${V1}/teams/${team}`);
-    expect(res.status).toBe(200);
-    expect(res.body.data.team).toMatchObject({ id: team, eventId: published });
-    expect(res.body.data.event).toMatchObject({ id: published });
-    expect(JSON.stringify(res.body)).not.toContain(inviteCode);
-  });
-
-  it('answers 404 for a disabled team, a draft event team and an unknown team', async () => {
-    const { rows } = await db.query<{ id: string }>(
-      'select id from public.teams where event_id = $1',
-      [draft],
-    );
-    for (const id of [disabledTeam, rows[0]!.id, randomUUID()]) {
-      const res = await as(app, viewer).get(`${V1}/teams/${id}`);
-      expect(res.status).toBe(404);
-      expect(res.body.error.code).toBe('TEAM_NOT_FOUND');
-    }
   });
 });
 

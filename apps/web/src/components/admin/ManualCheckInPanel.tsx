@@ -8,7 +8,7 @@ import Chip from '@/components/ui/Chip';
 import { AlertTriangleIcon, ChevronLeftIcon, SearchIcon, UsersIcon } from '@/components/ui/Icons';
 import { checkInStatus } from '@/lib/faceMatcher';
 import { calcAge } from '@/lib/age';
-import { formatDate, formatTime, initialsOf } from '@/lib/format';
+import { formatDate, formatFullDateTime, formatWhen, initialsOf, checkInVia } from '@/lib/format';
 import type { RosterEntry } from '@/lib/seed';
 
 const ROLE_LABEL: Record<RosterEntry['role'], string> = { player: 'Player', coach: 'Coach', staff: 'Staff' };
@@ -16,7 +16,7 @@ const ROLE_LABEL: Record<RosterEntry['role'], string> = { player: 'Player', coac
 /** Whether this person can be checked in, as a compact status pill. */
 function StatusPill({ entry }: { entry: RosterEntry }) {
   const s = checkInStatus(entry);
-  if (s.kind === 'already') return <Chip compact kind="warning">Checked in</Chip>;
+  if (s.kind === 'already') return <Chip compact kind="warning">{entry.pendingSync ? 'Checked in · waiting to sync' : 'Checked in'}</Chip>;
   if (s.kind === 'blocked') return <Chip compact kind={entry.approved && !entry.disabled ? 'warning' : 'danger'}>{entry.approved && !entry.disabled ? 'Blocked' : entry.disabled ? 'Disabled' : 'Not cleared'}</Chip>;
   return <Chip compact kind="success">Ready</Chip>;
 }
@@ -137,7 +137,7 @@ export default function ManualCheckInPanel({
               <div>
                 <div className="text-sm font-bold text-warning">Already checked in</div>
                 <p className="m-0 mt-0.5 text-[13px] text-ink-soft">
-                  At {formatTime(selected.checkedInAt)} via {selected.checkedInMethod}. Duplicate check-in is blocked.
+                  At <span title={formatFullDateTime(selected.checkedInAt)}>{formatWhen(selected.checkedInAt)}</span> via {checkInVia(selected)}. Duplicate check-in is blocked.
                 </p>
               </div>
             </div>

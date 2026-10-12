@@ -32,4 +32,6 @@ export interface RosterEntry {
   checkedInAt: number | null;
   checkedInMethod: string | null;
   checkedInOverride: boolean;
+  /** Checked in on THIS device but not yet acknowledged by the server: saved locally, waiting to sync. */
+  pendingSync?: boolean;
 }

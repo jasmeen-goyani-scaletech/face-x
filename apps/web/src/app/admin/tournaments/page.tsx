@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import Alert from '@/components/ui/Alert';
 import Card from '@/components/ui/Card';
@@ -10,11 +10,12 @@ import AdminPagination from '@/components/admin/AdminPagination';
 import SaveErrorAlert from '@/components/registration/player/SaveErrorAlert';
 import TournamentFields, { API_FIELD_TO_FORM, emptyTournamentForm, inputFromForm, tournamentErrors, type TournamentForm } from '@/components/admin/TournamentFields';
 import { useToast } from '@/components/ui/Toast';
-import { usePagination } from '@/lib/usePagination';
+import { useServerPaging } from '@/lib/usePagination';
+import { useRevalidateOnFocus } from '@/lib/useRevalidateOnFocus';
 import { PlusIcon, TrophyIcon, ChevronRightIcon } from '@/components/ui/Icons';
-import { createAdminEvent, listAdminEvents } from '@/lib/api/admin';
+import { createAdminEvent, listAdminEventsPage } from '@/lib/api/admin';
 import { describeError, fieldErrorsOf } from '@/lib/api/errors';
-import type { ApiAdminEvent, ApiEventStatus } from '@/lib/api/types';
+import type { ApiAdminEvent, ApiEventStatus, ApiPage } from '@/lib/api/types';
 import { formatEventStart } from '@/lib/format';
 import { useFieldErrors } from '@/lib/useFieldErrors';
 
@@ -24,37 +25,55 @@ const STATUS_KIND: Record<ApiEventStatus, 'neutral' | 'success' | 'warning'> = {
   CLOSED: 'warning'
 };
 
-const NO_EVENTS: ApiAdminEvent[] = [];
-
 export default function TournamentsPage() {
   const { notify } = useToast();
-  const [events, setEvents] = useState<ApiAdminEvent[] | null>(null);
+  const [data, setData] = useState<ApiPage<ApiAdminEvent> | null>(null);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<TournamentForm>(emptyTournamentForm);
   const [saving, setSaving] = useState(false);
+  // Set synchronously: a fast double-click would otherwise start twice before `saving` shows up in the next render.
+  const flight = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiErrors, setApiErrors] = useState<Record<string, string>>({});
   // Keys equal the input ids, so Create focuses the first invalid field.
   const { error, blur, submit, reset } = useFieldErrors(tournamentErrors(form), ['name', 'date', 'startTime', 'endTime', 'location', 'fee'] as const);
 
-  const pager = usePagination(events ?? NO_EVENTS);
+  const { page, pageSize, setPage, setPageSize } = useServerPaging();
+  // Only the newest answer is shown, so paging quickly can't leave an older page on screen.
+  const latest = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      setEvents(await listAdminEvents());
-    } catch (e) {
-      setLoadError(describeError(e));
+  // `quiet` is a refresh the admin did not ask for: it never shows an error or a spinner, and a failure keeps what is on screen.
+  const load = useCallback(async (quiet = false) => {
+    const mine = ++latest.current;
+    if (!quiet) {
+      setLoadError(null);
+      setLoading(true);
     }
-  }, []);
+    try {
+      const res = await listAdminEventsPage(page, pageSize);
+      if (mine !== latest.current) return;
+      // The page no longer exists (tournaments were removed elsewhere): go to the last one that does.
+      if (res.items.length === 0 && res.total > 0 && page > 1) setPage(Math.ceil(res.total / pageSize));
+      else setData(res);
+    } catch (e) {
+      if (mine === latest.current && !quiet) setLoadError(describeError(e));
+    } finally {
+      if (mine === latest.current) setLoading(false);
+    }
+  }, [page, pageSize, setPage]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  // Back after a while away: catch up with changes other admins made.
+  useRevalidateOnFocus(() => void load(true));
+
   async function create() {
-    if (!submit() || saving) return;
+    if (!submit() || saving || flight.current) return;
+    flight.current = true;
     setSaving(true);
     setSaveError(null);
     setApiErrors({});
@@ -71,6 +90,7 @@ export default function TournamentsPage() {
       for (const [path, message] of Object.entries(fieldErrorsOf(e))) labelled[API_FIELD_TO_FORM[path] ?? path] = message;
       setApiErrors(labelled);
     } finally {
+      flight.current = false;
       setSaving(false);
     }
   }
@@ -122,21 +142,21 @@ export default function TournamentsPage() {
         </Card>
       )}
 
-      {!loadError && events === null && (
+      {!loadError && data === null && (
         <p role="status" className="text-ink-soft text-sm">
           Loading…
         </p>
       )}
 
-      {events?.length === 0 && (
+      {data?.total === 0 && (
         <Card className="text-center py-10">
           <TrophyIcon size={32} className="mx-auto mb-3 text-ink-faint" />
           <p className="text-ink-soft text-sm">No tournaments yet. Create one to generate registration links.</p>
         </Card>
       )}
 
-      <div className="flex flex-col gap-2.5">
-        {pager.pageItems.map((t) => (
+      <div className={['flex flex-col gap-2.5 transition-opacity', loading && data ? 'opacity-60' : ''].join(' ')} aria-busy={loading}>
+        {(data?.items ?? []).map((t) => (
           <Link key={t.id} href={`/admin/tournaments/${t.id}`} className="no-underline">
             <Card className="flex items-center justify-between gap-3 hover:border-line-strong">
               <div>
@@ -154,7 +174,7 @@ export default function TournamentsPage() {
           </Link>
         ))}
       </div>
-      <AdminPagination total={pager.total} page={pager.page} pageSize={pager.pageSize} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />
+      {data && <AdminPagination total={data.total} page={data.page} pageSize={data.pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />}
     </div>
   );
 }

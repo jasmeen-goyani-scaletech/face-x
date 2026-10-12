@@ -1,40 +1,24 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { RosterEntry } from '../seed';
-import { ROSTER_CACHED_EVENT, searchRosterIds } from './rosterCache';
-
-const norm = (s: string | undefined) => (s ?? '').toLowerCase();
 
 /**
- * Live roster search backed by the IndexedDB cache, so it keeps working with no network. Results are the live `roster`
- * entries (current check-in status) filtered to the ids the cache matched. Until the first answer arrives, or if
- * IndexedDB is unavailable, it filters `roster` in memory so the list never flashes empty.
+ * The text a person is searched by: name, email, registration id and number, team. Lower-cased once per roster, not on every keystroke.
+ */
+const searchKey = (r: RosterEntry) => [`${r.firstName} ${r.lastName}`, r.email, r.id, r.schoolId, r.teamName].join('\n').toLowerCase();
+
+/**
+ * Searches the roster on this device. The roster on screen IS the device's copy (read from the server and saved, or, with no
+ * connection, read back from what was saved), so searching it needs no request and works offline; and it is instant even for a
+ * roster of thousands, which scanning the database on every keystroke was not. A substring match (so "smith" finds "John Smith");
+ * an empty query matches everyone. Results are the live entries, so their check-in state is always current.
  */
 export function useOfflineRosterSearch(query: string, roster: RosterEntry[]): RosterEntry[] {
-  const [ids, setIds] = useState<Set<string> | null>(null);
-  const [cacheVersion, setCacheVersion] = useState(0);
-
-  useEffect(() => {
-    const bump = () => setCacheVersion((v) => v + 1);
-    window.addEventListener(ROSTER_CACHED_EVENT, bump);
-    return () => window.removeEventListener(ROSTER_CACHED_EVENT, bump);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    searchRosterIds(query).then((found) => {
-      if (!cancelled) setIds(found);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [query, cacheVersion]);
-
+  const keys = useMemo(() => roster.map(searchKey), [roster]);
   return useMemo(() => {
-    if (ids) return roster.filter((r) => ids.has(r.id));
-    const q = norm(query).trim();
+    const q = query.trim().toLowerCase();
     if (!q) return roster;
-    return roster.filter((r) => [`${r.firstName} ${r.lastName}`, r.email, r.id, r.schoolId, r.teamName].some((f) => norm(f).includes(q)));
-  }, [ids, roster, query]);
+    return roster.filter((_, i) => keys[i]!.includes(q));
+  }, [query, roster, keys]);
 }

@@ -871,6 +871,44 @@ describe('POST /events/:id/check-ins', () => {
     expect((await manual(adminA, eventA, s)).status).toBe(201);
   });
 
+  it('a device id and the device time are kept in the audit record; the check-in time stays the server clock', async () => {
+    const s = await seed();
+    const deviceCheckedInAt = '2020-01-01T08:00:00.000Z'; // a wrong or old device clock
+    const res = await checkIn(adminA, eventA, {
+      method: 'MANUAL',
+      registrationId: s.regId,
+      clientRequestId: randomUUID(),
+      deviceId: 'door-tablet-2',
+      deviceCheckedInAt,
+    });
+    expect(res.status).toBe(201);
+    expect(new Date(res.body.data.checkedInAt).getFullYear()).toBeGreaterThan(2020);
+    const audit = await auditOf('CHECK_IN_COMPLETED', res.body.data.checkInId);
+    expect(audit[0]!.metadata).toMatchObject({ deviceId: 'door-tablet-2', deviceCheckedInAt });
+  });
+
+  it('ALREADY_CHECKED_IN tells the loser when (server time) and how the winner checked in, not who', async () => {
+    const s = await seed();
+    const win = await manual(adminA, eventA, s);
+    expect(win.status).toBe(201);
+    const late = await checkIn(adminA, eventA, {
+      method: 'MANUAL',
+      registrationId: s.regId,
+      clientRequestId: randomUUID(),
+      deviceId: 'door-tablet-2',
+      deviceCheckedInAt: '2020-01-01T08:00:00.000Z',
+    });
+    expect(late.status).toBe(409);
+    expect(late.body.error.code).toBe('ALREADY_CHECKED_IN');
+    expect(late.body.error.details).toEqual(
+      expect.arrayContaining([
+        { path: 'checkedInAt', message: win.body.data.checkedInAt },
+        { path: 'method', message: 'MANUAL' },
+      ]),
+    );
+    expect(JSON.stringify(late.body)).not.toContain(adminA);
+  });
+
   it('a duplicate check-in is a controlled 409 ALREADY_CHECKED_IN', async () => {
     const s = await seed();
     expect((await manual(adminA, eventA, s)).status).toBe(201);

@@ -6,9 +6,12 @@ import {
   createEventBodySchema,
   createTeamBodySchema,
   eventAccessBodySchema,
+  listEventsQuerySchema,
   listRegistrationsQuerySchema,
+  listTeamsQuerySchema,
   rejectRegistrationBodySchema,
   reviewQueueQuerySchema,
+  rosterQuerySchema,
   summaryQuerySchema,
   updateEventBodySchema,
   updateTeamBodySchema,
@@ -17,6 +20,7 @@ import type { AdminService } from './service';
 
 export interface AdminController {
   listEvents: RequestHandler;
+  listOrganizationTeams: RequestHandler;
   summary: RequestHandler;
   listRegistrations: RequestHandler;
   reviewQueue: RequestHandler;
@@ -47,7 +51,20 @@ export function createAdminController(service: AdminService): AdminController {
   return {
     listEvents: async (req, res) => {
       res.set('Cache-Control', 'no-store');
-      res.json({ success: true, data: await service.listEvents(caller(req)) });
+      const { page, pageSize } = listEventsQuerySchema.parse(req.query);
+      // The event pickers ask for no page and get every event; a listing that asks for one gets just that page.
+      if (page === undefined && pageSize === undefined) {
+        res.json({ success: true, data: await service.listEvents(caller(req)) });
+        return;
+      }
+      const data = await service.listEventsPage(caller(req), { page: page ?? 1, pageSize: pageSize ?? 25 });
+      res.json({ success: true, data });
+    },
+
+    listOrganizationTeams: async (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      const query = listTeamsQuerySchema.parse(req.query);
+      res.json({ success: true, data: await service.listOrganizationTeams(caller(req), query) });
     },
 
     summary: async (req, res) => {
@@ -99,7 +116,13 @@ export function createAdminController(service: AdminService): AdminController {
 
     roster: async (req, res) => {
       res.set('Cache-Control', 'no-store');
-      res.json({ success: true, data: await service.roster(eventOf(req)) });
+      const { page, pageSize } = rosterQuerySchema.parse(req.query);
+      if (page === undefined && pageSize === undefined) {
+        res.json({ success: true, data: await service.roster(eventOf(req)) });
+        return;
+      }
+      const data = await service.rosterPage(eventOf(req), { page: page ?? 1, pageSize: pageSize ?? 100 });
+      res.json({ success: true, data });
     },
 
     listRegistrations: async (req, res) => {

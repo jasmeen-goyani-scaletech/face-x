@@ -32,6 +32,9 @@ export function adoptLocalOwner(userId: string) {
     const owner = window.localStorage.getItem(OWNER_KEY);
     if (owner !== userId) {
       if (owner !== null || COPY_KEYS.some((k) => window.localStorage.getItem(k) !== null)) clearLocalCopies();
+      // The event-day roster the device holds is the previous admin's copy of people's details: it goes too. (Loaded on demand, so
+      // pages that never touch event-day work do not carry the offline database code.)
+      void import('./offline/rosterCache').then((m) => m.clearRosterCache());
       window.localStorage.setItem(OWNER_KEY, userId);
     }
   });

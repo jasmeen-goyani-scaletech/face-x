@@ -42,7 +42,9 @@ export function registrationState(status: ApiRegistrationStatus): RegistrationSt
   return 'pending';
 }
 
-export function paymentState(payment: ApiPaymentSummary | null): PaymentState {
+/** `unavailable`: the payment lookup failed, so nothing is known (never shown as unpaid). */
+export function paymentState(payment: ApiPaymentSummary | null, unavailable = false): PaymentState {
+  if (unavailable) return 'unknown';
   if (!payment) return 'incomplete';
   if (payment.paymentStatus === 'PAID' || payment.amountDue.amountCents === 0) return 'complete';
   return payment.paymentStatus === 'FAILED' ? 'failed' : 'incomplete';
@@ -127,7 +129,7 @@ export function personnelSections(reg: ApiPersonnelRegistration, consents: ApiCo
   return sections;
 }
 
-export function overviewSections(reg: ApiRegistration, payment: ApiPaymentSummary | null, consents: ApiConsentStatus | null): DetailSection[] {
+export function overviewSections(reg: ApiRegistration, payment: ApiPaymentSummary | null, consents: ApiConsentStatus | null, paymentUnavailable = false): DetailSection[] {
   const age = calcAge(reg.player.dateOfBirth);
   const isMinor = age === null || age < 18;
   const sections: DetailSection[] = [
@@ -172,7 +174,7 @@ export function overviewSections(reg: ApiRegistration, payment: ApiPaymentSummar
     title: 'Payment',
     items: [
       { label: 'Amount', value: money(payment?.amountDue.amountCents ?? reg.fee.amountCents) },
-      { label: 'Status', value: payment ? payment.paymentStatus.replace('_', ' ').toLowerCase() : 'not started' },
+      { label: 'Status', value: paymentUnavailable ? 'unavailable (reload to retry)' : payment ? payment.paymentStatus.replace('_', ' ').toLowerCase() : 'not started' },
       { label: 'Paid', value: paidAt ? formatDateTime(Date.parse(paidAt)) : '—' },
       ...(failed ? [{ label: 'Failure reason', value: failed, wide: true }] : [])
     ],

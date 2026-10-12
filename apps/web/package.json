@@ -12,6 +12,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/copy-mediapipe.mjs",
+    "generate:og": "node scripts/generate-og.mjs",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test tests/*.test.mjs"
   },
   "dependencies": {

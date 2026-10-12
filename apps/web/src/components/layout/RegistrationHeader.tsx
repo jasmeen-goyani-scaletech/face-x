@@ -9,7 +9,9 @@ const ROLE_NAME: Record<RegistrationHeaderRole, string> = { PLAYER: 'Player', CO
 /**
  * The one header for every /register/{player|coach|staff} view: FX logo + "FACE-X" + "<Role> registration" on the left,
  * the colour-coded role badge on the right. Wizard state (draft, submitted…) never changes it, so it can't drift per page.
+ * The player registration pages show the logo and title only: no role badge, notifications or Sign out.
  */
 export default function RegistrationHeader({ role }: { role: RegistrationHeaderRole }) {
+  if (role === 'PLAYER') return <Topbar eyebrow="Player registration" accountControls={false} />;
   return <Topbar role={ROLE_KEY[role]} eyebrow={`${ROLE_NAME[role]} registration`} />;
 }

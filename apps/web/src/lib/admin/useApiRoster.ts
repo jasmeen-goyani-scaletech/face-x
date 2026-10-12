@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getEventRoster } from '@/lib/api/admin';
 import { getDownloadUrl } from '@/lib/api/documents';
-import { describeError } from '@/lib/api/errors';
+import { describeError, isApiError } from '@/lib/api/errors';
 import type { ApiAdminEvent, ApiRosterEntry } from '@/lib/api/types';
-import { cacheRoster, markCachedCheckedIn } from '@/lib/offline/rosterCache';
-import { enqueueCheckIn, SERVER_CHECKINS_EVENT } from '@/lib/offline/syncQueue';
+import { liveQuery } from 'dexie';
+import { getSessionUser } from '@/lib/api/session';
+import { getOfflineDb } from '@/lib/offline/db';
+import { isTransientStatus, mergePending } from '@/lib/offline/policy';
+import { cacheRoster, markCachedCheckedIn, readCachedRoster, rosterCacheEpoch } from '@/lib/offline/rosterCache';
+import { useToast } from '@/components/ui/Toast';
+import { enqueueCheckIn, listPending, MEMORY_QUEUE_EVENT, SERVER_CHECKINS_EVENT, type ServerCheckInsDetail } from '@/lib/offline/syncQueue';
 import type { RosterEntry } from '@/lib/seed';
 import { useAdminEvent, type AdminEventState } from './useAdminEvent';
 
@@ -59,39 +64,101 @@ export type ApiRosterState =
       roster: RosterEntry[];
       /** Records a check-in at once on screen; it is sent to the server by the offline queue (now, or when the connection returns). */
       markPresent: (id: string, method: string, override: boolean) => void;
+      /** Where the roster on screen came from: the server just now (or earlier this visit), or this device's saved copy. */
+      source: 'server' | 'device';
+      /** When the server last gave this roster (ms epoch), or null while that is not known yet. */
+      syncedAt: number | null;
+      /** False when the browser is offline or the last attempt to reach the server failed: check-ins are saved on the device. */
+      online: boolean;
     };
+
+/** A roster read this recent is not read again just because the sync engine ran. */
+const FRESH_MS = 5_000;
+/** On a slow connection, the device's own copy is shown after this long rather than leaving the door waiting for the server. */
+const SLOW_MS = 4_000;
 
 /**
  * The event-day roster for the admin's current event, read from the API. It keeps an IndexedDB copy so search and check-in keep
  * working with no connection, shows a check-in immediately, and re-reads after the offline queue syncs (so check-ins made on
  * other devices appear too).
+ *
+ *  - No connection, a timeout or a struggling server on the first read: the device's copy for THIS admin and THIS event is used,
+ *    and the screen says so (`source: 'device'`, `online: false`). Another admin's or another event's copy is never used.
+ *  - A slow server: after SLOW_MS the device's copy is shown meanwhile, and replaced when the server answers.
+ *  - A refusal (signed out, no permission, unknown event) is shown as an error, never answered from the device.
+ *  - A roster read from the server never undoes a check-in this device has made and not yet sent (see `mergePending`).
  */
 export function useApiEventRoster(): ApiRosterState {
-  const ev: AdminEventState = useAdminEvent();
+  const ev: AdminEventState = useAdminEvent({ offlineFallback: true });
   const eventId = ev.status === 'ready' ? ev.event.id : null;
   const [roster, setRoster] = useState<RosterEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [source, setSource] = useState<'server' | 'device'>('server');
+  const [syncedAt, setSyncedAt] = useState<number | null>(null);
+  const [reachable, setReachable] = useState(true);
+  const [browserOnline, setBrowserOnline] = useState(true);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
+  const { notify } = useToast();
   const eventIdRef = useRef(eventId);
   eventIdRef.current = eventId;
+  const evRef = useRef(ev);
+  evRef.current = ev;
+  /** People being checked in right now: a second tap on the same person before the first has finished is ignored. */
+  const markingRef = useRef(new Set<string>());
   const rosterRef = useRef(roster);
   rosterRef.current = roster;
+  /** When the roster was last read (or 'loading'), so a sync pass right behind a read does not ask the server again. */
+  const readRef = useRef<{ inFlight: boolean; at: number }>({ inFlight: false, at: 0 });
 
   const load = useCallback(async (id: string, quiet: boolean) => {
+    const me = getSessionUser()?.id ?? '';
+    const epoch = rosterCacheEpoch();
     if (!quiet) setRoster(null);
     setRefreshing(true);
     setError(null);
+    readRef.current.inFlight = true;
+    let settled = false;
+
+    /** Shows this device's copy (if it is this admin's, for this event, and sound) instead of waiting. True when it did. */
+    const showDeviceCopy = async (): Promise<boolean> => {
+      if (!me) return false;
+      const saved = await readCachedRoster({ eventId: id, ownerId: me });
+      if (!saved || eventIdRef.current !== id) return false;
+      const merged = mergePending(saved.roster, await listPending(id, me));
+      setRoster(merged);
+      setSource('device');
+      setSyncedAt(saved.fetchedAt);
+      return true;
+    };
+
+    // A slow server: after a few seconds, the door works from the device's copy while the server's answer is still on its way.
+    const slow = quiet ? null : setTimeout(() => void (async () => !settled && !rosterRef.current && (await showDeviceCopy()))(), SLOW_MS);
     try {
       const rows = await getEventRoster(id);
+      settled = true;
       if (eventIdRef.current !== id) return; // the admin switched events meanwhile
-      const entries = rows.map(toRosterEntry);
+      const entries = mergePending(rows.map(toRosterEntry), me ? await listPending(id, me) : []);
       setRoster(entries);
-      void cacheRoster(entries);
+      setSource('server');
+      setSyncedAt(Date.now());
+      setReachable(true);
+      const current = evRef.current;
+      if (me && current.status === 'ready') void cacheRoster(rows.map(toRosterEntry), { eventId: id, ownerId: me, event: current.event, events: current.events, epoch });
     } catch (e) {
-      // A failed quiet refresh keeps what is on screen (and in the offline copy) rather than blanking the door.
+      settled = true;
+      if (isApiError(e) && isTransientStatus(e.status)) {
+        setReachable(false);
+        // The server can't be reached: carry on from the device's copy. A failed quiet refresh keeps what is on screen.
+        if (!rosterRef.current && (await showDeviceCopy())) return;
+        if (rosterRef.current) return;
+      }
+      // Anything else (signed out, no permission, unknown event), or nothing saved on this device: say so.
       if (!quiet || !rosterRef.current) setError(describeError(e));
     } finally {
+      if (slow) clearTimeout(slow);
+      readRef.current = { inFlight: false, at: Date.now() };
       setRefreshing(false);
     }
   }, []);
@@ -100,34 +167,90 @@ export function useApiEventRoster(): ApiRosterState {
     if (eventId) void load(eventId, false);
   }, [eventId, attempt, load]);
 
+  // The browser's own idea of "online" is only a hint (it says nothing about the server), but a drop in it is shown at once and its
+  // return is a reason to try the server again right away.
+  useEffect(() => {
+    setBrowserOnline(navigator.onLine);
+    const on = () => {
+      setBrowserOnline(true);
+      if (eventIdRef.current && !readRef.current.inFlight) void load(eventIdRef.current, true);
+    };
+    const off = () => setBrowserOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, [load]);
+
   // After the offline queue has talked to the server, read the roster again.
   useEffect(() => {
-    const onSynced = () => {
+    const onSynced = (e: Event) => {
+      // A pass that sent check-ins always re-reads: the server may have settled a conflict with another device, and the screen
+      // must show its answer. A pass that sent nothing (the sync engine runs once when the page opens) has nothing to add right
+      // after the roster was read; anything checked in elsewhere shows on the next pass.
+      const sent = (e as CustomEvent<ServerCheckInsDetail>).detail?.sent !== false;
+      const { inFlight, at } = readRef.current;
+      if (!sent && (inFlight || Date.now() - at < FRESH_MS)) return;
       if (eventIdRef.current) void load(eventIdRef.current, true);
     };
     window.addEventListener(SERVER_CHECKINS_EVENT, onSynced);
     return () => window.removeEventListener(SERVER_CHECKINS_EVENT, onSynced);
   }, [load]);
 
+  // Who is still waiting to be sent from this device (live, so it also follows other tabs): shown as "saved on this device".
+  useEffect(() => {
+    const me = getSessionUser()?.id;
+    const db = getOfflineDb();
+    if (!eventId || !me) return;
+    let alive = true;
+    const refresh = () => void listPending(eventId, me).then((p) => alive && setPendingIds(new Set(p.map((i) => i.personId))));
+    refresh();
+    window.addEventListener(MEMORY_QUEUE_EVENT, refresh);
+    const sub = db
+      ? liveQuery(() => db.pendingCheckIns.where('status').anyOf('PENDING', 'SYNCING', 'FAILED').count()).subscribe({ next: refresh, error: () => undefined })
+      : null;
+    return () => {
+      alive = false;
+      window.removeEventListener(MEMORY_QUEUE_EVENT, refresh);
+      sub?.unsubscribe();
+    };
+  }, [eventId]);
+
   const markPresent = useCallback((id: string, method: string, override: boolean) => {
     const eventNow = eventIdRef.current;
     const person = rosterRef.current?.find((r) => r.id === id);
     if (!eventNow || !person) return;
+    // Already checked in (here or on the server), or a tap is already being handled: nothing to do, and nothing to queue twice.
+    if (person.checkedInAt || markingRef.current.has(id)) return;
+    markingRef.current.add(id);
     const at = Date.now();
     // Optimistic: the roster (and so the screen) updates immediately; the queue is what carries it to the server.
     setRoster((prev) => prev?.map((r) => (r.id === id ? { ...r, checkedInAt: at, checkedInMethod: method, checkedInOverride: override } : r)) ?? prev);
     void markCachedCheckedIn(person.role, id, { checkedInAt: at, checkedInMethod: method, checkedInOverride: override });
-    void enqueueCheckIn(person, eventNow, method, override, at);
-  }, []);
+    void enqueueCheckIn(person, eventNow, method, override, at)
+      .then((outcome) => {
+        if (outcome === 'memory-only')
+          notify(
+            'This device couldn’t save the check-in (its storage is full or blocked). It is held in memory and will be sent while this page stays open: don’t close or reload it until it syncs.',
+            'danger'
+          );
+      })
+      .finally(() => markingRef.current.delete(id));
+  }, [notify]);
+
+  // Someone this device has checked in but the server has not acknowledged is marked, so "saved here" is never mistaken for "confirmed".
+  const shown = useMemo(() => (roster && pendingIds.size > 0 ? roster.map((r) => (r.checkedInAt && pendingIds.has(r.id) ? { ...r, pendingSync: true } : r)) : roster), [roster, pendingIds]);
 
   return useMemo<ApiRosterState>(() => {
     if (ev.status === 'loading') return { status: 'loading' };
     if (ev.status === 'error') return { status: 'error', message: ev.message, retry: ev.retry };
     if (ev.status === 'empty') return { status: 'empty' };
-    if (error && !roster) return { status: 'error', message: error, retry: () => setAttempt((n) => n + 1) };
-    if (!roster) return { status: 'loading' };
-    return { status: 'ready', event: ev.event, events: ev.events, setEventId: ev.setEventId, refreshing, roster, markPresent };
-  }, [ev, error, roster, refreshing, markPresent]);
+    if (error && !shown) return { status: 'error', message: error, retry: () => setAttempt((n) => n + 1) };
+    if (!shown) return { status: 'loading' };
+    return { status: 'ready', event: ev.event, events: ev.events, setEventId: ev.setEventId, refreshing, roster: shown, markPresent, source, syncedAt, online: browserOnline && reachable };
+  }, [ev, error, shown, refreshing, markPresent, source, syncedAt, browserOnline, reachable]);
 }
 
 /**

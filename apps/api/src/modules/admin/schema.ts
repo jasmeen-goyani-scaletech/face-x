@@ -26,7 +26,34 @@ export const summaryQuerySchema = z
   .object({ registrantType: z.enum(REGISTRANT_TYPES).default('PLAYER') })
   .strict();
 
+/**
+ * GET /admin/events/:id/roster: with neither `page` nor `pageSize` it is the whole roster (a plain array, as ever); with either
+ * it is one page, up to ROSTER_PAGE_MAX people. A device that holds the roster for the day reads it page by page, so no roster
+ * is ever silently cut short.
+ */
+export const ROSTER_PAGE_MAX = 500;
+export const rosterQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(100_000).optional(),
+    pageSize: z.coerce.number().int().min(1).max(ROSTER_PAGE_MAX).optional(),
+  })
+  .strict();
+
 export const reviewQueueQuerySchema = z.object({ page, pageSize }).strict();
+
+/** One page of the organization's teams, across all its events. */
+export const listTeamsQuerySchema = z.object({ page, pageSize }).strict();
+
+/**
+ * GET /admin/events: with neither `page` nor `pageSize` it is the plain list the event pickers need; with either it is one
+ * page. Both are optional here (no defaults) so that their absence can be told apart.
+ */
+export const listEventsQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(100_000).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+  })
+  .strict();
 
 export const rejectRegistrationBodySchema = z
   .object({
@@ -51,6 +78,7 @@ export const eventAccessBodySchema = z
   });
 
 export type ListRegistrationsQuery = z.infer<typeof listRegistrationsQuerySchema>;
+export type ListTeamsQuery = z.infer<typeof listTeamsQuerySchema>;
 export type ReviewQueueQuery = z.infer<typeof reviewQueueQuerySchema>;
 export type EventAccessBody = z.infer<typeof eventAccessBodySchema>;
 export type RejectRegistrationBody = z.infer<typeof rejectRegistrationBodySchema>;

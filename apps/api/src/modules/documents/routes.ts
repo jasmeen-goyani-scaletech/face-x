@@ -28,7 +28,6 @@ export function createDocumentRouter(
   );
   router.get('/registrations/:registrationId/documents', requireAuth, controller.list);
 
-  router.get('/documents/:documentId', requireAuth, controller.get);
   router.get('/documents/:documentId/download-url', requireAuth, controller.downloadUrl);
   router.post(
     '/documents/:documentId/complete',

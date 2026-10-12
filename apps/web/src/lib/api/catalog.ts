@@ -1,7 +1,19 @@
 import { apiRequest } from './http';
-import type { ApiEvent, ApiTeam, ApiTeamWithEvent } from './types';
+import { loadAllPages } from './pages';
+import type { ApiEvent, ApiPage, ApiTeam, ApiTeamWithEvent } from './types';
 
-export const listEvents = () => apiRequest<ApiEvent[]>('/events');
+/** The most the API returns for one page of events. */
+const EVENT_PAGE_SIZE = 100;
+
+/**
+ * EVERY event open for registration, for the registration pickers. It reads all the pages of the paged endpoint (the plain
+ * `GET /events` stops at 100), so none is out of reach however many there are; with 100 or fewer it is still one request.
+ */
+export const listEvents = () =>
+  loadAllPages(
+    (page) => apiRequest<ApiPage<ApiEvent>>('/events', { query: { page: String(page), pageSize: String(EVENT_PAGE_SIZE) } }),
+    EVENT_PAGE_SIZE
+  );
 
 export const listTeams = (eventId: string) => apiRequest<ApiTeam[]>(`/events/${eventId}/teams`);
 

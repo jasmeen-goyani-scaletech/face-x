@@ -19,7 +19,7 @@ import { FieldError } from '@/components/ui/FormFieldWrapper';
 import Checkbox from '@/components/ui/Checkbox';
 import { CheckIcon } from '@/components/ui/Icons';
 import CoachApprovalConfirmation from '@/components/coach/CoachApprovalConfirmation';
-import { MSG, compact, validatePersonBasics } from '@/lib/validation';
+import { compact, validatePersonBasics } from '@/lib/validation';
 import { useFieldErrors } from '@/lib/useFieldErrors';
 import { uploadStepErrors } from '@/lib/uploadStepValidation';
 import { canReplace, needsUpload } from '@/lib/registration/documentMap';
@@ -238,8 +238,8 @@ function CoachWizard() {
 
           {reg.adminStatus === 'rejected' && (
             <>
-              <Alert level="danger" title="Certificates rejected">
-                {reg.rejectionReason || 'One or more certificates were rejected.'} {!w.closed && 'Re-upload them for another review.'}
+              <Alert level="danger" title={w.closed ? 'Registration rejected' : 'Certificates rejected'}>
+                {reg.rejectionReason || (w.closed ? 'Your registration was rejected.' : 'One or more certificates were rejected.')} {!w.closed && 'Re-upload them for another review.'}
               </Alert>
               {!w.closed && (
                 <Button variant="primary" onClick={() => goTo('certificates')}>

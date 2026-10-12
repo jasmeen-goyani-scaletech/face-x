@@ -9,7 +9,6 @@ import type { DocumentService } from './service';
 export interface DocumentController {
   requestUpload: RequestHandler;
   list: RequestHandler;
-  get: RequestHandler;
   complete: RequestHandler;
   submit: RequestHandler;
   review: RequestHandler;
@@ -42,11 +41,6 @@ export function createDocumentController(service: DocumentService): DocumentCont
     list: async (req, res) => {
       const registrationId = uuid.parse(req.params.registrationId);
       res.json({ success: true, data: await service.list(caller(req), registrationId) });
-    },
-
-    get: async (req, res) => {
-      const id = uuid.parse(req.params.documentId);
-      res.json({ success: true, data: await service.get(caller(req), id) });
     },
 
     complete: async (req, res) => {

@@ -33,6 +33,7 @@ export function createAdminRouter(controller: AdminController, mw: AdminRouteMid
     mw.requireEventAdmin,
     controller.createTeam,
   );
+  router.get('/admin/teams', mw.requireAuth, mw.requireAdminRole, controller.listOrganizationTeams);
   // Team routes name only the team: the service checks the caller administers the event it belongs to.
   router.get('/admin/teams/:teamId', mw.requireAuth, mw.requireAdminRole, controller.getTeam);
   router.patch('/admin/teams/:teamId', mw.requireAuth, mw.requireAdminRole, controller.updateTeam);

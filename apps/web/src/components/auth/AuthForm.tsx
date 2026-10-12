@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useState, type FormEvent, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Topbar from '@/components/layout/Topbar';
@@ -30,6 +30,8 @@ function Form({ mode }: { mode: Mode }) {
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Set synchronously: a fast double-click would otherwise start twice before `submitting` shows up in the next render.
+  const flight = useRef(false);
 
   // Someone who is already signed in (or whose cookie still works) has no reason to see this page.
   useEffect(() => {
@@ -56,6 +58,8 @@ function Form({ mode }: { mode: Mode }) {
       document.getElementById(Object.keys(found)[0])?.focus();
       return;
     }
+    if (flight.current) return;
+    flight.current = true;
     setSubmitting(true);
     try {
       if (mode === 'login') await login(email.trim(), password);
@@ -68,6 +72,7 @@ function Form({ mode }: { mode: Mode }) {
       } else {
         setFormError(describeError(e));
       }
+      flight.current = false;
       setSubmitting(false);
     }
   }

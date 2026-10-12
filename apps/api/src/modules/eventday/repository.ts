@@ -184,6 +184,8 @@ function bind(q: Queryable) {
     findCheckInByRequestId: (clientRequestId: string) =>
       findCheckIn(q, 'c.client_request_id', clientRequestId),
     findCheckInByScan: (scanId: string) => findCheckIn(q, 'c.face_scan_id', scanId),
+    findCheckInByRegistration: (registrationId: string) =>
+      findCheckIn(q, 'c.registration_id', registrationId),
 
     async search(
       eventId: string,
@@ -273,7 +275,7 @@ async function findCheckIn(
   column: string,
   value: string,
 ): Promise<CheckInRow | null> {
-  // `column` is one of three constants chosen above, never input.
+  // `column` is one of the constants chosen above, never input.
   const { rows } = await q.query<{
     id: string;
     event_id: string;

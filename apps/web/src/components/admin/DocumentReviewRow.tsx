@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Chip from '@/components/ui/Chip';
 import DocumentIconBox from '@/components/ui/DocumentIconBox';
 import IconButton from '@/components/ui/IconButton';
@@ -81,6 +81,8 @@ export default function DocumentReviewRow({
   const [rejecting, setRejecting] = useState(false);
   const [reopened, setReopened] = useState(false);
   const [pending, setPending] = useState(false);
+  // Set synchronously: a fast double-click would otherwise start twice before `pending` shows up in the next render.
+  const flight = useRef(false);
   const [rejectError, setRejectError] = useState<string | null>(null);
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [remoteError, setRemoteError] = useState<string | null>(null);
@@ -107,7 +109,8 @@ export default function DocumentReviewRow({
 
   async function approve() {
     if (readOnly) return;
-    if (!server) return;
+    if (!server || flight.current) return;
+    flight.current = true;
     setPending(true);
     try {
       await server.approve();
@@ -117,12 +120,14 @@ export default function DocumentReviewRow({
     } catch (e) {
       notify(describeError(e, 'We couldn’t record that decision. Please try again.'), 'danger');
     } finally {
+      flight.current = false;
       setPending(false);
     }
   }
 
   async function reject(reason: { code: RejectionReasonCode; text: string }) {
-    if (readOnly || !server) return;
+    if (readOnly || !server || flight.current) return;
+    flight.current = true;
     setPending(true);
     setRejectError(null);
     try {
@@ -134,6 +139,7 @@ export default function DocumentReviewRow({
     } catch (e) {
       setRejectError(describeError(e, 'We couldn’t record that decision. Please try again.')); // dialog stays open so nothing typed is lost
     } finally {
+      flight.current = false;
       setPending(false);
     }
   }
@@ -233,7 +239,8 @@ export default function DocumentReviewRow({
                     <XIcon size={16} strokeWidth={3} />
                   </IconButton>
                 </>
-              ) : (
+              ) : server ? null : (
+                // A decision saved on the server is final (the API answers 409 to a second one); the family replaces a rejected file.
                 <IconButton label={`Change decision for ${label}`} tooltip="Change decision" onClick={() => setReopened(true)}>
                   <EditIcon size={16} />
                 </IconButton>

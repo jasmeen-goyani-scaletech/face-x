@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import Button from './Button';
 import Chip, { reviewChip } from './Chip';
 import DocumentIconBox from './DocumentIconBox';
@@ -9,6 +9,8 @@ import IconButton from './IconButton';
 import { EyeIcon, RefreshIcon, TrashIcon, UploadIcon } from './Icons';
 import InfoTooltip from './InfoTooltip';
 import DocumentPreviewDialog from '@/components/admin/DocumentPreviewDialog';
+import { getDownloadUrl } from '@/lib/api/documents';
+import { describeError } from '@/lib/api/errors';
 import { MAX_PDF_BYTES_UPLOADED, formatFileSize, readDocumentFile, validateDocumentFile } from '@/lib/playerDocuments';
 import type { UploadedFile } from '@/lib/types';
 
@@ -59,6 +61,24 @@ export default function DocumentUploadRow({
   const [progress, setProgress] = useState<number | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+
+  // A file held on the server but not in this browser (after a reload, or on another device): ask for a fresh signed link each time
+  // the preview opens (links are short-lived). A file picked in this session is shown from the browser's own copy, no request.
+  const remote = value.serverId && !value.dataUrl;
+  useEffect(() => {
+    if (!previewing || !remote || !value.serverId) return;
+    let cancelled = false;
+    setRemoteUrl(null);
+    setRemoteError(null);
+    getDownloadUrl(value.serverId, { inline: true })
+      .then((r) => !cancelled && setRemoteUrl(r.url))
+      .catch((e) => !cancelled && setRemoteError(describeError(e, 'We couldn’t open this file. Please try again.')));
+    return () => {
+      cancelled = true;
+    };
+  }, [previewing, remote, value.serverId]);
 
   const uploading = progress !== null;
   const rejected = value.review === 'rejected';
@@ -206,7 +226,13 @@ export default function DocumentUploadRow({
       )}
       {shownError && <FieldError className="mt-1.5">{shownError}</FieldError>}
 
-      <DocumentPreviewDialog open={previewing} title={label} file={value} onClose={() => setPreviewing(false)} />
+      <DocumentPreviewDialog
+        open={previewing}
+        title={label}
+        file={value}
+        onClose={() => setPreviewing(false)}
+        remote={remote ? { url: remoteUrl, mimeType: value.mimeType ?? '', error: remoteError } : undefined}
+      />
     </div>
   );
 }

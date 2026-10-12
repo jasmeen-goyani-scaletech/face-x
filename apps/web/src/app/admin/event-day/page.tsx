@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import { CameraIcon, ClockIcon, SearchIcon } from '@/components/ui/Icons';
-import { formatTime, initialsOf } from '@/lib/format';
+import { formatFullDateTime, formatWhen, initialsOf, checkInVia } from '@/lib/format';
 import { entryAccessState } from '@/lib/accessCompliance';
 import EventDayGate, { EventLine, type ReadyRoster } from '@/components/admin/EventDayGate';
 import AdminPagination from '@/components/admin/AdminPagination';
@@ -82,9 +82,9 @@ function EventDayView({ data }: { data: ReadyRoster }) {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-[12.5px] font-semibold text-success flex items-center gap-1 justify-end">
-                      <ClockIcon size={12} /> {formatTime(r.checkedInAt)}
+                      <ClockIcon size={12} /> <span title={formatFullDateTime(r.checkedInAt)}>{formatWhen(r.checkedInAt)}</span>
                     </div>
-                    <div className="text-[11px] text-ink-faint">{r.checkedInMethod}</div>
+                    <div className="text-[11px] text-ink-faint">{checkInVia(r)}</div>
                   </div>
                 </Card>
               ))}

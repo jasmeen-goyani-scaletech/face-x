@@ -25,6 +25,12 @@ export interface PendingCheckIn {
   attempts: number;
   createdAt: number;
   lastError?: string;
+  /** The server's own words for why it refused (shown to the admin), when it did. */
+  lastMessage?: string;
+  /** The admin account that made this check-in. The server records who checked someone in, so only this account may send it. */
+  ownerId?: string;
+  /** Who it is, for messages ("Jane Doe"), so a refusal can say whom it was about. */
+  label?: string;
 }
 
 export class FaceXOfflineDB extends Dexie {
@@ -32,6 +38,8 @@ export class FaceXOfflineDB extends Dexie {
   staff!: Table<RosterRecord, string>;
   coaches!: Table<RosterRecord, string>;
   pendingCheckIns!: Table<PendingCheckIn, string>;
+  /** Small facts about the device's copy (which roster it holds, and when it was read). */
+  meta!: Table<{ key: string; value: unknown }, string>;
 
   constructor() {
     super('facex-offline');
@@ -41,6 +49,8 @@ export class FaceXOfflineDB extends Dexie {
       coaches: 'id, fullName, email, teamId, role',
       pendingCheckIns: 'uuid, status, createdAt, personId'
     });
+    // Adds the table that says which roster the device holds. The queue is untouched: nothing waiting to sync is ever lost to an upgrade.
+    this.version(2).stores({ meta: 'key' });
   }
 }
 

@@ -26,6 +26,8 @@ interface Snapshot {
   event: ApiEvent | null;
   readiness: ApiReadinessReport;
   payment: ApiPaymentSummary | null;
+  /** The payment lookup failed (so `payment` is unknown, not "none"). */
+  paymentError: boolean;
   documents: ApiDocument[];
 }
 
@@ -57,7 +59,7 @@ const STATUS_LABEL: Record<ApiRegistration['status'], { label: string; kind: 'in
 const reviewOf = (d: ApiDocument) => toUploadedFile(d).review;
 
 function RegistrationPanel({ s }: { s: Snapshot }) {
-  const { registration: r, event, readiness, payment } = s;
+  const { registration: r, event, readiness, payment, paymentError } = s;
   // A replaced (rejected) file stays on record; the family sees only what is on file now.
   const documents = newestPerType(s.documents);
   const status = STATUS_LABEL[r.status];
@@ -111,6 +113,12 @@ function RegistrationPanel({ s }: { s: Snapshot }) {
         ))
       )}
 
+      {paymentError && (
+        <Alert level="warning" title="We couldn’t load your payment status">
+          Your payment may be fine. Reload this page to check it again before paying.
+        </Alert>
+      )}
+
       {payment && payment.amountDue.amountCents > 0 && (
         <Card className="mb-4">
           <div className="flex items-center justify-between text-sm">
@@ -161,11 +169,18 @@ function Dashboard() {
       const items = await Promise.all(
         summaries.map(async (s): Promise<Snapshot> => {
           const [registration, readiness, documents] = await Promise.all([getRegistration(s.id), getReadiness(s.id), listDocuments(s.id)]);
+          let paymentError = false;
           const [event, payment] = await Promise.all([
+            // The event is only used for its address line; the page reads fine without it.
             getEvent(registration.event.id).catch(() => null),
-            registration.status === 'DRAFT' ? Promise.resolve(null) : getPayment(s.id).catch(() => null)
+            registration.status === 'DRAFT'
+              ? Promise.resolve(null)
+              : getPayment(s.id).catch(() => {
+                  paymentError = true; // shown to the family: a failed lookup must not read as "no payment"
+                  return null;
+                })
           ]);
-          return { registration, event, readiness, payment, documents: documents.documents };
+          return { registration, event, readiness, payment, paymentError, documents: documents.documents };
         })
       );
       setLoad({ kind: 'ready', items });

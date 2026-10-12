@@ -285,7 +285,11 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
     window.scrollTo(0, 0);
   }, []);
 
+  // Set synchronously (state would only show up after the next render), so a double-click is ignored, not run twice.
+  const inFlight = useRef(false);
   const run = useCallback(async (fn: () => Promise<boolean>): Promise<boolean> => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
     setSaving(true);
     setSaveError(null);
     setApiFieldErrors({});
@@ -297,6 +301,7 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
       setApiFieldErrors(fieldErrorsOf(e));
       return false;
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   }, []);

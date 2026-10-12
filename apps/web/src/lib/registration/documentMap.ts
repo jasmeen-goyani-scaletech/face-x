@@ -46,7 +46,8 @@ const REASON_LABEL: Record<NonNullable<NonNullable<ApiDocument['review']>['reaso
  *   UPLOADED         stored and checked, not yet sent to review      -> uploaded, "not_submitted"
  *   IN_REVIEW        staff has it                                    -> "pending"
  *   APPROVED / REJECTED                                              -> the decision (+ reason)
- * `previewUrl` is a browser-local object URL for a file uploaded in this session (the API never returns file URLs here).
+ * `previewUrl` is a browser-local object URL for a file uploaded in this session. The API returns no file URLs in this list; after a
+ * reload the preview asks for a fresh signed link by `serverId` (see DocumentUploadRow).
  */
 export function toUploadedFile(doc: ApiDocument | undefined, previewUrl?: string): UploadedFile {
   if (!doc || doc.state === 'AWAITING_UPLOAD') return emptyFile();
@@ -54,6 +55,8 @@ export function toUploadedFile(doc: ApiDocument | undefined, previewUrl?: string
     uploaded: true,
     fileName: doc.fileName,
     dataUrl: previewUrl,
+    serverId: doc.id,
+    mimeType: doc.mimeType,
     size: doc.sizeBytes ?? undefined,
     uploadedAt: doc.uploadedAt ? Date.parse(doc.uploadedAt) : undefined,
     review: 'not_submitted'

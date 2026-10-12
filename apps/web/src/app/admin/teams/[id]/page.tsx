@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Alert from '@/components/ui/Alert';
@@ -61,6 +61,8 @@ export default function TeamDetailPage({ params }: { params: { id: string } }) {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [form, setForm] = useState({ name: '', club: '', division: '' });
   const [saving, setSaving] = useState(false);
+  // Set synchronously: a fast double-click would otherwise start twice before `saving` shows up in the next render.
+  const flight = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiErrors, setApiErrors] = useState<Record<string, string>>({});
   const { error, blur, submit } = useFieldErrors(
@@ -93,7 +95,8 @@ export default function TeamDetailPage({ params }: { params: { id: string } }) {
   }, [load]);
 
   async function save() {
-    if (!submit() || saving) return;
+    if (!submit() || saving || flight.current) return;
+    flight.current = true;
     setSaving(true);
     setSaveError(null);
     setApiErrors({});
@@ -105,6 +108,7 @@ export default function TeamDetailPage({ params }: { params: { id: string } }) {
       setSaveError(describeError(e, 'We couldn’t save the team. Please try again.'));
       setApiErrors(fieldErrorsOf(e));
     } finally {
+      flight.current = false;
       setSaving(false);
     }
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
@@ -46,6 +46,8 @@ interface Loaded {
   registration: ApiRegistration | ApiPersonnelRegistration;
   documents: ApiDocument[];
   payment: ApiPaymentSummary | null;
+  /** The payment lookup failed: `payment` is unknown, not "none". */
+  paymentError: boolean;
   readiness: ApiReadinessReport;
   consents: ApiConsentStatus;
   history: ApiStatusHistoryEntry[];
@@ -56,14 +58,20 @@ type State = { kind: 'loading' } | { kind: 'notfound' } | { kind: 'error'; messa
 async function loadAll(id: string, kind: RegistrantKind): Promise<Loaded> {
   const registration = kind === 'PLAYER' ? await getRegistration(id) : await getPersonnelRegistration(id);
   // Coaches and staff do not pay: there is no payment to load.
+  let paymentError = false;
   const [documents, readiness, consents, status, payment] = await Promise.all([
     listDocuments(id),
     getReadiness(id),
     getConsents(id),
     getRegistrationStatus(id),
-    kind !== 'PLAYER' || registration.status === 'DRAFT' ? Promise.resolve(null) : getPayment(id).catch(() => null)
+    kind !== 'PLAYER' || registration.status === 'DRAFT'
+      ? Promise.resolve(null)
+      : getPayment(id).catch(() => {
+          paymentError = true; // shown as "Unavailable", never as unpaid
+          return null;
+        })
   ]);
-  return { registration, documents: documents.documents, payment, readiness, consents, history: status.history };
+  return { registration, documents: documents.documents, payment, paymentError, readiness, consents, history: status.history };
 }
 
 /** One registration (a player's, coach's or staff member's) for an admin, read from and decided through the API. `id` is the registration id. */
@@ -72,6 +80,9 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
   const router = useRouter();
   const { notify } = useToast();
   const [accessPending, setAccessPending] = useState(false);
+  // Set synchronously: a fast double-click would otherwise act twice before the pending state shows up in the next render.
+  const accessFlight = useRef(false);
+  const rejectFlight = useRef(false);
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
@@ -93,7 +104,7 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
 
   const view = useMemo(() => {
     if (state.kind !== 'ready') return null;
-    const { registration, documents, payment, readiness, consents, history } = state.data;
+    const { registration, documents, payment, paymentError, readiness, consents, history } = state.data;
     const files = REVIEW_ROWS_BY_KIND[kind].map((r) => ({ ...r, doc: documentFor(documents, r.type) }));
     const regState = registrationState(registration.status);
     const flags = flagsFrom(readiness.blockers, kind);
@@ -112,7 +123,8 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
       locked: isRecordLocked(regState, compliance),
       frozen,
       payment,
-      sections: registration.registrantType === 'PLAYER' ? overviewSections(registration, payment, consents) : personnelSections(registration, consents),
+      paymentError,
+      sections: registration.registrantType === 'PLAYER' ? overviewSections(registration, payment, consents, paymentError) : personnelSections(registration, consents),
       activity: auditEvents(history, documents, consents),
       rejection: [...history].reverse().find((h) => h.to === 'REJECTED')
     };
@@ -142,13 +154,14 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
     );
   }
 
-  const { registration: reg, files, regState, flags, compliance, locked, frozen, payment, rejection } = view;
+  const { registration: reg, files, regState, flags, compliance, locked, frozen, payment, paymentError, rejection } = view;
   const canReject = REJECTABLE.includes(reg.status);
   const person = reg.registrantType === 'PLAYER' ? reg.player : reg.staffProfile;
 
   /** Flips event-day access on the server, then reloads so the header shows what the server now holds. */
   async function toggleAccess() {
-    if (accessPending) return;
+    if (accessPending || accessFlight.current) return;
+    accessFlight.current = true;
     setAccessPending(true);
     try {
       await setEventAccess(reg.id, !reg.eventAccessDisabled);
@@ -157,11 +170,14 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
     } catch (e) {
       notify(describeError(e, 'We couldn’t change event-day access. Please try again.'), 'danger');
     } finally {
+      accessFlight.current = false;
       setAccessPending(false);
     }
   }
 
   async function submitReject() {
+    if (rejectFlight.current) return;
+    rejectFlight.current = true;
     setRejectPending(true);
     setRejectError(null);
     try {
@@ -172,6 +188,7 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
     } catch (e) {
       setRejectError(describeError(e));
     } finally {
+      rejectFlight.current = false;
       setRejectPending(false);
     }
   }
@@ -283,7 +300,7 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
         initials: initialsOf(person.firstName, person.lastName),
         roleLabel: copy.label === 'Staff member' ? 'Staff' : copy.label,
         registration: regState,
-        payment: kind === 'PLAYER' ? paymentState(payment) : undefined,
+        payment: kind === 'PLAYER' ? paymentState(payment, paymentError) : undefined,
         flags,
         compliance,
         accessDisabled: reg.eventAccessDisabled,

@@ -4,6 +4,8 @@ Nothing here has been deployed yet. This is how the current code is meant to be 
 what is still undecided. Every environment-specific value is an environment variable; the code has no host names, paths or
 credentials in it.
 
+> Before launch also read **`docs/production-readiness.md`**: the exact migration command, push and Stripe set-up, a Vercel + separate API plan, the placeholder consent inventory, retention and key rotation.
+
 ## 1. Shape of a deployment
 
 ```text
@@ -99,8 +101,8 @@ The storage layer has three small interfaces (signed links, server-side verifica
 
 For a bucket: keep it private; allow the browser to `PUT` from the site origin only (CORS: methods `PUT`, header `Content-Type`).
 Browsers upload directly to the bucket with a short-lived link, so the bucket's address must be reachable from users' browsers.
-**Unverified against any real bucket yet** (including Hetzner Object Storage: confirm presigned `PUT`, CORS and the
-`response-content-disposition` header behave as on AWS).
+Verified against a real Hetzner Object Storage bucket (hel1, path-style) on 2026-10-09: presigned `PUT` and `GET`, browser CORS,
+size/type binding of the signature, expiry, and refusal of unsigned reads. Production still needs its own origin added to CORS.
 
 ### Switching from the local driver to Hetzner Object Storage
 
@@ -120,6 +122,25 @@ STORAGE_FORCE_PATH_STYLE=false                               # set true only if 
 Then, once, in the Hetzner console / with an S3 tool: keep the bucket **private** and add a CORS rule for the site origin allowing
 `PUT` with header `Content-Type` (browsers upload straight to the bucket). Restart the API and run one upload per kind (a player
 document, a coach certificate, a staff proof) plus a download from the admin screen. The web app needs no change.
+
+### Credentials and restricting access to the Face-X bucket
+
+- The `STORAGE_*` values live only in the API's environment (git-ignored `apps/api/.env`, or the host's secret store). Never put them in
+  `.env.example`, the web app, or the repo. The browser only ever sees a presigned URL, which embeds the access key **id** but not the secret.
+- **Hetzner S3 keys are project-wide**: a key pair can read and write **every** bucket in its Hetzner Cloud project, existing and future.
+  The development key can also see another bucket in the same project, so it is broader than Face-X needs.
+- Preferred fix: create a **dedicated Hetzner project for Face-X** and generate the production key there, so it cannot reach other
+  projects' buckets. Buckets cannot be moved between projects: create the bucket in the new project and copy the objects (e.g. `rclone`).
+- Alternative, same project: attach a **bucket policy** that denies everyone except the Face-X access key (principal
+  `arn:aws:iam:::user/p<project_id>:<access_key>`), applied with an S3 tool such as the MinIO Client, not the console. Other projects'
+  buckets need the same treatment, otherwise this key can still reach them. Side effect: the console can no longer list that bucket.
+  Test with the new key (list `face-x`: allowed; list any other bucket: denied) before cutting over.
+- Use separate keys per environment. To rotate: create the new key, update the secret store, restart, then delete the old key.
+  The secret is shown only once, at creation.
+- Log scrubbing (`apps/api/src/shared/utils/scrub.ts`) redacts AWS-style `AKIA…` ids and `X-Amz-*` signature parameters, not other
+  providers' key formats. Storage errors are logged server-side only and answered to clients as a generic 503.
+
+Source: [Hetzner docs, S3 credentials](https://docs.hetzner.com/storage/object-storage/faq/s3-credentials/).
 
 ## 6. Stripe
 

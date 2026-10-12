@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import Alert from '@/components/ui/Alert';
 import Card from '@/components/ui/Card';
@@ -10,24 +10,29 @@ import { TextField, SelectField } from '@/components/ui/Field';
 import AdminPagination from '@/components/admin/AdminPagination';
 import SaveErrorAlert from '@/components/registration/player/SaveErrorAlert';
 import { useToast } from '@/components/ui/Toast';
-import { usePagination } from '@/lib/usePagination';
+import { useServerPaging } from '@/lib/usePagination';
+import { useRevalidateOnFocus } from '@/lib/useRevalidateOnFocus';
 import { PlusIcon, UsersIcon, ChevronRightIcon } from '@/components/ui/Icons';
-import { createAdminTeam, listAdminEvents, listAdminTeams } from '@/lib/api/admin';
+import { createAdminTeam, listAdminEvents, listAdminTeamsPage } from '@/lib/api/admin';
 import { describeError, fieldErrorsOf } from '@/lib/api/errors';
-import type { ApiAdminEvent, ApiAdminTeam } from '@/lib/api/types';
+import type { ApiAdminEvent, ApiAdminTeam, ApiPage } from '@/lib/api/types';
 import { compact } from '@/lib/validation';
 import { useFieldErrors } from '@/lib/useFieldErrors';
 
-const NO_TEAMS: ApiAdminTeam[] = [];
+const NO_EVENTS: ApiAdminEvent[] = [];
 
 export default function TeamsPage() {
   const { notify } = useToast();
-  const [teams, setTeams] = useState<ApiAdminTeam[] | null>(null);
-  const [events, setEvents] = useState<ApiAdminEvent[]>([]);
+  const [data, setData] = useState<ApiPage<ApiAdminTeam> | null>(null);
+  // Every event, for the names on the rows and the tournament picker; null until it has loaded.
+  const [events, setEvents] = useState<ApiAdminEvent[] | null>(null);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ eventId: '', name: '', club: '', division: '' });
   const [saving, setSaving] = useState(false);
+  // Set synchronously: a fast double-click would otherwise start twice before `saving` shows up in the next render.
+  const flight = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiErrors, setApiErrors] = useState<Record<string, string>>({});
   const { error, blur, submit, reset } = useFieldErrors(
@@ -39,31 +44,66 @@ export default function TeamsPage() {
     ['eventId', 'name', 'division'] as const
   );
 
-  const pager = usePagination(teams ?? NO_TEAMS);
-  const eventName = useMemo(() => new Map(events.map((e) => [e.id, e.name])), [events]);
+  const { page, pageSize, setPage, setPageSize } = useServerPaging();
+  const eventList = events ?? NO_EVENTS;
+  const eventName = useMemo(() => new Map(eventList.map((e) => [e.id, e.name])), [eventList]);
+  // Only the newest answer is shown, so paging quickly can't leave an older page on screen.
+  const latest = useRef(0);
 
-  const load = useCallback(async () => {
-    setLoadError(null);
+  // `quiet` is a refresh the admin did not ask for: it never shows an error or a spinner, and a failure keeps what is on screen.
+  const loadEvents = useCallback(async (quiet = false) => {
     try {
-      const list = await listAdminEvents();
-      const perEvent = await Promise.all(list.map((e) => listAdminTeams(e.id)));
-      setEvents(list);
-      setTeams(perEvent.flat());
+      setEvents(await listAdminEvents());
     } catch (e) {
-      setLoadError(describeError(e));
+      if (!quiet) setLoadError(describeError(e));
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const loadTeams = useCallback(async (quiet = false) => {
+    const mine = ++latest.current;
+    if (!quiet) {
+      setLoadError(null);
+      setLoading(true);
+    }
+    try {
+      const res = await listAdminTeamsPage(page, pageSize);
+      if (mine !== latest.current) return;
+      // The page no longer exists (the last team of it was removed elsewhere): go to the last one that does.
+      if (res.items.length === 0 && res.total > 0 && page > 1) setPage(Math.ceil(res.total / pageSize));
+      else setData(res);
+    } catch (e) {
+      if (mine === latest.current && !quiet) setLoadError(describeError(e));
+    } finally {
+      if (mine === latest.current) setLoading(false);
+    }
+  }, [page, pageSize, setPage]);
+
+  const load = useCallback(async () => {
+    setLoadError(null);
+    await Promise.all([loadEvents(), loadTeams()]);
+  }, [loadEvents, loadTeams]);
 
   useEffect(() => {
-    if (!form.eventId && events.length > 0) setForm((f) => ({ ...f, eventId: events.find((e) => e.status === 'PUBLISHED')?.id ?? events[0].id }));
-  }, [events, form.eventId]);
+    void loadEvents();
+  }, [loadEvents]);
+
+  useEffect(() => {
+    void loadTeams();
+  }, [loadTeams]);
+
+  // Back after a while away: catch up with changes other admins made.
+  useRevalidateOnFocus(() => {
+    void loadEvents(true);
+    void loadTeams(true);
+  });
+
+  useEffect(() => {
+    if (!form.eventId && eventList.length > 0) setForm((f) => ({ ...f, eventId: eventList.find((e) => e.status === 'PUBLISHED')?.id ?? eventList[0].id }));
+  }, [eventList, form.eventId]);
 
   async function create() {
-    if (!submit() || saving) return;
+    if (!submit() || saving || flight.current) return;
+    flight.current = true;
     setSaving(true);
     setSaveError(null);
     setApiErrors({});
@@ -73,11 +113,12 @@ export default function TeamsPage() {
       setForm({ eventId: form.eventId, name: '', club: '', division: '' });
       reset();
       setShowCreate(false);
-      await load();
+      await loadTeams();
     } catch (e) {
       setSaveError(describeError(e, 'We couldn’t create the team. Please try again.'));
       setApiErrors(fieldErrorsOf(e));
     } finally {
+      flight.current = false;
       setSaving(false);
     }
   }
@@ -89,12 +130,12 @@ export default function TeamsPage() {
           <h1 className="text-2xl mb-1">Teams</h1>
           <p className="text-ink-soft text-sm">Teams registrants pick from — the same source registration links use.</p>
         </div>
-        <Button variant="primary" onClick={() => setShowCreate((v) => !v)} disabled={events.length === 0}>
+        <Button variant="primary" onClick={() => setShowCreate((v) => !v)} disabled={eventList.length === 0}>
           <PlusIcon size={16} /> Create Team
         </Button>
       </div>
 
-      {teams !== null && events.length === 0 && (
+      {events !== null && events.length === 0 && (
         <Card className="mb-5">
           <p className="text-ink-soft text-sm">
             Create a{' '}
@@ -111,7 +152,7 @@ export default function TeamsPage() {
           <h2 className="text-lg mb-4">New Team</h2>
           <SaveErrorAlert error={saveError} fieldErrors={apiErrors} />
           <SelectField id="eventId" label="Tournament" value={form.eventId} error={error('eventId')} onBlur={blur('eventId')} onChange={(e) => setForm({ ...form, eventId: e.target.value })}>
-            {events.map((t) => (
+            {eventList.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
@@ -152,21 +193,21 @@ export default function TeamsPage() {
         </Card>
       )}
 
-      {!loadError && teams === null && (
+      {!loadError && data === null && (
         <p role="status" className="text-ink-soft text-sm">
           Loading…
         </p>
       )}
 
-      {teams?.length === 0 && events.length > 0 && (
+      {data?.total === 0 && eventList.length > 0 && (
         <Card className="text-center py-10">
           <UsersIcon size={32} className="mx-auto mb-3 text-ink-faint" />
           <p className="text-ink-soft text-sm">No teams yet.</p>
         </Card>
       )}
 
-      <div className="flex flex-col gap-2.5">
-        {pager.pageItems.map((t) => (
+      <div className={['flex flex-col gap-2.5 transition-opacity', loading && data ? 'opacity-60' : ''].join(' ')} aria-busy={loading}>
+        {(data?.items ?? []).map((t) => (
           <Link key={t.id} href={`/admin/teams/${t.id}`} className="no-underline">
             <Card className="flex items-center justify-between gap-3 hover:border-line-strong">
               <div>
@@ -183,7 +224,7 @@ export default function TeamsPage() {
           </Link>
         ))}
       </div>
-      <AdminPagination total={pager.total} page={pager.page} pageSize={pager.pageSize} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} />
+      {data && <AdminPagination total={data.total} page={data.page} pageSize={data.pageSize} onPageChange={setPage} onPageSizeChange={setPageSize} />}
     </div>
   );
 }

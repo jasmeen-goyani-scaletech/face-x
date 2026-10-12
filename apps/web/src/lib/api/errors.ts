@@ -40,6 +40,7 @@ const FRIENDLY: Record<string, string> = {
   STORAGE_NOT_CONFIGURED: 'File uploads aren’t available right now. Please try again later.',
   STORAGE_UNAVAILABLE: 'File uploads aren’t available right now. Please try again later.',
   FILE_TYPE_NOT_ALLOWED: 'That file type isn’t accepted. Upload a JPG, PNG or PDF.',
+  FILE_TOO_LARGE: 'That file is too large. Try a smaller file or a clearer, closer photo.',
   DOCUMENT_ALREADY_REVIEWED: 'Another admin has already decided on this document. Reload to see the result.',
   DOCUMENT_NOT_SUBMITTED: 'The family hasn’t sent this document for review yet.',
   INVALID_STATUS_TRANSITION: 'This registration is in a state where that can’t be done (for example it was already decided).',

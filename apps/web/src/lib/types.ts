@@ -8,6 +8,10 @@ export interface UploadedFile {
   reason?: string;
   size?: number; // bytes, as uploaded
   uploadedAt?: number; // epoch ms
+  /** The document's id on the server, when it is stored there: lets a preview ask for a fresh signed link after a reload. */
+  serverId?: string;
+  /** The stored file's type (e.g. image/jpeg, application/pdf), as the server recorded it. */
+  mimeType?: string;
 }
 
 export function emptyFile(): UploadedFile {

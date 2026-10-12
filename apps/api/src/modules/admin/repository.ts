@@ -16,6 +16,7 @@ import type {
   CreateEventBody,
   CreateTeamBody,
   ListRegistrationsQuery,
+  ListTeamsQuery,
   ReviewQueueQuery,
   UpdateEventBody,
   UpdateTeamBody,
@@ -47,6 +48,8 @@ export interface AdminRepository {
 
   /** Events owned by an organization, newest first, every status. */
   listEvents(organizationId: string): Promise<AdminEvent[]>;
+  /** One page of the organization's events, newest first (the same order as `listEvents`). */
+  listEventsPage(organizationId: string, query: { page: number; pageSize: number }): Promise<Page<AdminEvent>>;
   findEvent(eventId: string): Promise<AdminEvent | null>;
   insertEvent(
     organizationId: string,
@@ -62,6 +65,8 @@ export interface AdminRepository {
   eventHasRegistrations(eventId: string): Promise<boolean>;
 
   listTeams(eventId: string): Promise<AdminTeam[]>;
+  /** One page of the teams of every event of the organization: by event (newest first), then division and name. */
+  listOrganizationTeams(organizationId: string, query: ListTeamsQuery): Promise<Page<AdminTeam>>;
   /** Null when the event already has a team with this name and club. */
   insertTeam(eventId: string, body: CreateTeamBody): Promise<AdminTeam | null>;
   /** The team with the organization that owns its event (for the admin check). Optionally row-locked. */
@@ -73,7 +78,13 @@ export interface AdminRepository {
   updateTeam(teamId: string, patch: UpdateTeamBody): Promise<AdminTeam | null>;
 
   /** The event's day-of roster, or only one team's people when `teamId` is given. */
-  roster(eventId: string, teamId?: string): Promise<EventRosterEntry[]>;
+  roster(
+    eventId: string,
+    teamId?: string,
+    window?: { limit: number; offset: number },
+  ): Promise<EventRosterEntry[]>;
+  /** How many people are on the event's day-of roster (the same people `roster` lists). */
+  rosterCount(eventId: string): Promise<number>;
   summary(eventId: string, registrantType: RegistrantType): Promise<EventSummary>;
   listRegistrations(
     eventId: string,
@@ -199,9 +210,6 @@ interface RosterRow {
   checked_in_at: Date | null;
   method: 'FACE' | 'MANUAL' | null;
 }
-/** A day-of roster is one event's people: a few hundred in practice. The cap only stops a runaway query. */
-const ROSTER_LIMIT = 3000;
-
 /** Escapes LIKE wildcards so a search for "50%" or "a_b" matches those characters literally. */
 const likeContains = (term: string) => `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
@@ -219,6 +227,20 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         [organizationId],
       );
       return rows.map(toAdminEvent);
+    },
+
+    async listEventsPage(organizationId, { page, pageSize }) {
+      const total = await q.query<{ n: string }>(
+        'select count(*) as n from public.events where organization_id = $1',
+        [organizationId],
+      );
+      const { rows } = await q.query<EventRow>(
+        `select ${EVENT_COLUMNS}
+           from public.events where organization_id = $1
+          order by starts_at desc, id limit $2 offset $3`,
+        [organizationId, pageSize, (page - 1) * pageSize],
+      );
+      return { items: rows.map(toAdminEvent), page, pageSize, total: Number(total.rows[0]?.n ?? 0) };
     },
 
     async findEvent(eventId) {
@@ -306,6 +328,22 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
       return rows.map(toAdminTeam);
     },
 
+    async listOrganizationTeams(organizationId, { page, pageSize }) {
+      const total = await q.query<{ n: string }>(
+        `select count(*) as n from public.teams t join public.events e on e.id = t.event_id
+          where e.organization_id = $1`,
+        [organizationId],
+      );
+      const { rows } = await q.query<TeamRow>(
+        `select ${TEAM_COLUMNS} from public.teams t join public.events e on e.id = t.event_id
+          where e.organization_id = $1
+          order by e.starts_at desc, e.id, t.division, lower(t.name), t.id
+          limit $2 offset $3`,
+        [organizationId, pageSize, (page - 1) * pageSize],
+      );
+      return { items: rows.map(toAdminTeam), page, pageSize, total: Number(total.rows[0]?.n ?? 0) };
+    },
+
     async insertTeam(eventId, b) {
       const { rows } = await q.query<{ id: string }>(
         `insert into public.teams (event_id, name, club, division)
@@ -349,8 +387,17 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
       return (await findTeamIn(q, teamId))!.team;
     },
 
-    async roster(eventId, teamId) {
-      const [{ rows: ev }, { rows }, { rows: docs }, { rows: consents }] = await Promise.all([
+    async rosterCount(eventId) {
+      const { rows } = await q.query<{ n: string }>(
+        `select count(*) as n from public.registrations r
+          where r.event_id = $1 and r.status not in ('DRAFT', 'CANCELLED', 'REJECTED')`,
+        [eventId],
+      );
+      return Number(rows[0]?.n ?? 0);
+    },
+
+    async roster(eventId, teamId, window) {
+      const [{ rows: ev }, { rows }] = await Promise.all([
         q.query<{ starts_at: Date; timezone: string }>(
           'select starts_at, timezone from public.events where id = $1',
           [eventId],
@@ -378,9 +425,13 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
               and ($2::uuid is null or r.team_id = $2::uuid)
             order by lower(coalesce(pl.last_name, sp.last_name)), lower(coalesce(pl.first_name, sp.first_name)),
                      r.registration_number
-            limit ${ROSTER_LIMIT}`,
-          [eventId, teamId ?? null],
+            limit $3 offset $4`,
+          [eventId, teamId ?? null, window?.limit ?? null, window?.offset ?? 0],
         ),
+      ]);
+      // Documents and consents only for the people on this page (a roster is read page by page on the day).
+      const ids = rows.map((r) => r.id);
+      const [{ rows: docs }, { rows: consents }] = await Promise.all([
         q.query<{
           registration_id: string;
           id: string;
@@ -392,16 +443,15 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         }>(
           `select d.registration_id, d.id, d.document_type, d.status, d.uploaded_at, d.submitted_at, d.created_at
              from public.documents d join public.registrations r on r.id = d.registration_id
-            where r.event_id = $1`,
-          [eventId],
+            where d.registration_id = any($1::uuid[])`,
+          [ids],
         ),
         q.query<{ registration_id: string; code: string }>(
           `select cr.registration_id, c.code
              from public.consent_records cr
              join public.consents c on c.id = cr.consent_id
-             join public.registrations r on r.id = cr.registration_id
-            where r.event_id = $1`,
-          [eventId],
+            where cr.registration_id = any($1::uuid[])`,
+          [ids],
         ),
       ]);
       const event = ev[0];
@@ -552,8 +602,9 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
       }
       if (query.documentsPending === 'true') {
         where.push(
-          `exists (select 1 from public.documents d
-                    where d.registration_id = r.id and d.status = 'PENDING' and d.submitted_at is not null)`,
+          // Frozen (cancelled / rejected) registrations are not waiting on anyone: their documents can no longer be decided.
+          `(r.status not in ('CANCELLED', 'REJECTED') and exists (select 1 from public.documents d
+                    where d.registration_id = r.id and d.status = 'PENDING' and d.submitted_at is not null))`,
         );
       }
       const whereSql = where.join(' and ');
@@ -605,7 +656,8 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
                 dc.in_review, dc.approved, dc.rejected, dc.not_submitted
            ${from}
            left join lateral (
-             select count(*) filter (where nd.submitted_at is not null and nd.status = 'PENDING') as in_review,
+             select count(*) filter (where nd.submitted_at is not null and nd.status = 'PENDING'
+                                       and r.status not in ('CANCELLED', 'REJECTED')) as in_review,
                     count(*) filter (where nd.status = 'APPROVED') as approved,
                     count(*) filter (where nd.status = 'REJECTED') as rejected,
                     count(*) filter (where nd.uploaded_at is not null and nd.submitted_at is null) as not_submitted

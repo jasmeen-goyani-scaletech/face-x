@@ -540,6 +540,31 @@ describe('the day-of roster and check-in', () => {
     );
   });
 
+  it('pages the roster: same people, same order, with the size of the whole roster; no page asks for everyone', async () => {
+    for (const first of ['Ana', 'Bea', 'Cal', 'Dee', 'Eli']) {
+      await personnel(eventId, 'COACH', { first, last: 'Pager', status: 'READY_FOR_EVENT' });
+    }
+    const all = (await roster()).body.data as { registrationId: string }[];
+    expect(all.length).toBeGreaterThanOrEqual(5);
+    const seen: string[] = [];
+    for (let page = 1; page <= Math.ceil(all.length / 2); page += 1) {
+      const res = await as(app, adminA).get(`${ADMIN}/events/${eventId}/roster?page=${page}&pageSize=2`);
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ page, pageSize: 2, total: all.length });
+      expect(res.body.data.items.length).toBeLessThanOrEqual(2);
+      seen.push(...res.body.data.items.map((e: { registrationId: string }) => e.registrationId));
+    }
+    expect(seen).toEqual(all.map((e) => e.registrationId)); // nobody twice, nobody missing, same order
+    const past = await as(app, adminA).get(`${ADMIN}/events/${eventId}/roster?page=999&pageSize=2`);
+    expect(past.body.data).toMatchObject({ items: [], total: all.length });
+  });
+
+  it('refuses a page size beyond the limit and unknown parameters', async () => {
+    expect((await as(app, adminA).get(`${ADMIN}/events/${eventId}/roster?pageSize=501`)).status).toBe(422);
+    expect((await as(app, adminA).get(`${ADMIN}/events/${eventId}/roster?pageSize=0`)).status).toBe(422);
+    expect((await as(app, adminA).get(`${ADMIN}/events/${eventId}/roster?q=x`)).status).toBe(422);
+  });
+
   it('is limited to admins of the event organization', async () => {
     expect((await roster(adminB)).status).toBe(403);
     expect((await request(app).get(`${ADMIN}/events/${eventId}/roster`)).status).toBe(401);

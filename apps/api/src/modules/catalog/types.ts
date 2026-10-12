@@ -12,6 +12,14 @@ export interface EventDto {
   registrationOpen: boolean;
 }
 
+/** One page of a list, with how many rows there are across every page. */
+export interface Page<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
 /** Never includes the invite code: it is a secret that lets a coach join the team. */
 export interface TeamDto {
   id: string;

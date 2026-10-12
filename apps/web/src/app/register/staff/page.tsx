@@ -232,8 +232,9 @@ function StaffWizard() {
 
           {reg.adminStatus === 'rejected' && (
             <>
-              <Alert level="danger" title="Registration rejected">
-                {reg.rejectionReason || 'Your registration was rejected.'}
+              {/* A closed registration was turned down as a whole; otherwise only some documents were, and they can be replaced. */}
+              <Alert level="danger" title={w.closed ? 'Registration rejected' : 'Documents rejected'}>
+                {reg.rejectionReason || (w.closed ? 'Your registration was rejected.' : 'One or more documents were rejected.')}
               </Alert>
               {!w.closed && (
                 <Button variant="primary" onClick={() => goTo('certificates')}>

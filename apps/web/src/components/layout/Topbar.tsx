@@ -8,7 +8,7 @@ import { useLogoHref, type RegistrationRole } from '@/lib/activeRole';
 import PushNotificationsButton from '@/components/notifications/PushNotificationsButton';
 import RoleBadge from '@/components/ui/RoleBadge';
 
-export default function Topbar({ eyebrow, role }: { eyebrow?: string; role?: RegistrationRole }) {
+export default function Topbar({ eyebrow, role, accountControls = true }: { eyebrow?: string; role?: RegistrationRole; /** false: logo only, no notifications or Sign out (the player registration pages). */ accountControls?: boolean }) {
   // Once a registration is under way the logo returns to that role's page, not the landing/role-picker screens.
   const homeHref = useLogoHref();
   const { status, logout } = useAuth();
@@ -43,7 +43,7 @@ export default function Topbar({ eyebrow, role }: { eyebrow?: string; role?: Reg
         </span>
       </Link>
       {role && <RoleBadge role={role} className="ml-auto shrink-0" />}
-      {status === 'signedIn' && (
+      {accountControls && status === 'signedIn' && (
         <div className={[role ? 'ml-3' : 'ml-auto', 'flex shrink-0 items-center gap-1'].join(' ')}>
           <PushNotificationsButton />
           <button

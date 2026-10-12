@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 import type { FaceDetector } from '@mediapipe/tasks-vision';
 import {
   createGuidanceSmoother,

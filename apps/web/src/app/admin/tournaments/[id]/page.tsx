@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Alert from '@/components/ui/Alert';
@@ -63,6 +63,8 @@ export default function TournamentDetailPage({ params }: { params: { id: string 
   const [form, setForm] = useState<TournamentForm | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [saving, setSaving] = useState(false);
+  // Set synchronously: a fast double-click would otherwise start twice before `saving` shows up in the next render.
+  const flight = useRef(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [apiErrors, setApiErrors] = useState<Record<string, string>>({});
   const errors = form ? tournamentErrors(form) : {};
@@ -85,6 +87,8 @@ export default function TournamentDetailPage({ params }: { params: { id: string 
   }, [load]);
 
   async function apply(patch: Parameters<typeof updateAdminEvent>[1], success: string) {
+    if (flight.current) return;
+    flight.current = true;
     setSaving(true);
     setSaveError(null);
     setApiErrors({});
@@ -99,6 +103,7 @@ export default function TournamentDetailPage({ params }: { params: { id: string 
       for (const [path, message] of Object.entries(fieldErrorsOf(e))) labelled[API_FIELD_TO_FORM[path] ?? path] = message;
       setApiErrors(labelled);
     } finally {
+      flight.current = false;
       setSaving(false);
     }
   }

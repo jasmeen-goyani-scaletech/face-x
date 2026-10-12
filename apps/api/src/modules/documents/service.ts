@@ -45,7 +45,6 @@ export interface DocumentService {
     meta: RequestMeta,
   ): Promise<DocumentDto>;
   list(ctx: AuthContext, registrationId: string): Promise<DocumentListDto>;
-  get(ctx: AuthContext, documentId: string): Promise<DocumentDto>;
   downloadUrl(
     ctx: AuthContext,
     documentId: string,
@@ -424,11 +423,6 @@ export function createDocumentService({
         documents: visible,
         completeness: completenessOf(visible, registration.registrantType),
       };
-    },
-
-    async get(ctx, documentId) {
-      await readableDocument(ctx, documentId);
-      return dtoOrThrow(documentId);
     },
 
     async downloadUrl(ctx, documentId, meta, options = {}) {

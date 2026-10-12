@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
@@ -16,6 +16,7 @@ import { STATUS_LABEL } from '@/lib/admin/apiPlayerView';
 import { useAdminEvent } from '@/lib/admin/useAdminEvent';
 import { formatEventStart, initialsOf } from '@/lib/format';
 import { PAGE_SIZES } from '@/lib/usePagination';
+import { useRevalidateOnFocus } from '@/lib/useRevalidateOnFocus';
 
 type Filter = 'all' | 'review' | 'ready' | 'rejected';
 
@@ -69,14 +70,29 @@ export default function ApiRegistrationsListPage({ kind = 'PLAYER' }: { kind?: R
   const [input, setInput] = useState('');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [page, setPage] = useState(1);
+  // A new search, filter or event starts again at page 1. The page is tied to the query it was chosen for, so the change
+  // never sends one request for the old page number before another for page 1.
+  const queryKey = `${eventId}|${kind}|${search}|${filter}`;
+  const [paging, setPaging] = useState({ key: '', page: 1 });
+  const page = paging.key === queryKey ? paging.page : 1;
+  const setPage = (p: number) => setPaging({ key: queryKey, page: p });
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
 
-  const [data, setData] = useState<ApiPage<ApiAdminRegistrationRow> | null>(null);
-  const [summary, setSummary] = useState<ApiEventSummary | null>(null);
+  // What was loaded, with the event and kind it belongs to: another event's rows are never shown, not even while loading.
+  const scope = `${eventId}|${kind}`;
+  const [loaded, setLoaded] = useState<{ scope: string; data: ApiPage<ApiAdminRegistrationRow> } | null>(null);
+  const [loadedSummary, setLoadedSummary] = useState<{ scope: string; summary: ApiEventSummary } | null>(null);
+  const data = loaded?.scope === scope ? loaded.data : null;
+  const summary = loadedSummary?.scope === scope ? loadedSummary.summary : null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // A refresh the admin did not ask for (coming back to the tab): no spinner, and a failure keeps what is on screen.
+  const quiet = useRef(false);
+  useRevalidateOnFocus(() => {
+    quiet.current = true;
+    setAttempt((n) => n + 1);
+  });
 
   // The search box waits for a pause in typing before asking the server.
   useEffect(() => {
@@ -84,19 +100,18 @@ export default function ApiRegistrationsListPage({ kind = 'PLAYER' }: { kind?: R
     return () => clearTimeout(t);
   }, [input]);
 
-  // A new search, filter or event starts again at page 1.
-  useEffect(() => {
-    setPage(1);
-  }, [search, filter, eventId]);
-
   useEffect(() => {
     if (!eventId) return;
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const silent = quiet.current;
+    quiet.current = false;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     listAdminRegistrations(eventId, { ...FILTER_QUERY[filter], registrantType: kind, search, page, pageSize })
-      .then((res) => !cancelled && setData(res))
-      .catch((e) => !cancelled && setError(describeError(e)))
+      .then((res) => !cancelled && setLoaded({ scope: `${eventId}|${kind}`, data: res }))
+      .catch((e) => !cancelled && !silent && setError(describeError(e)))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
@@ -107,8 +122,8 @@ export default function ApiRegistrationsListPage({ kind = 'PLAYER' }: { kind?: R
     if (!eventId) return;
     let cancelled = false;
     getEventSummary(eventId, kind)
-      .then((s) => !cancelled && setSummary(s))
-      .catch(() => !cancelled && setSummary(null)); // the counts are a nicety: the list still works without them
+      .then((s) => !cancelled && setLoadedSummary({ scope: `${eventId}|${kind}`, summary: s }))
+      .catch(() => undefined); // the counts are a nicety: the list still works without them
     return () => {
       cancelled = true;
     };
@@ -212,7 +227,7 @@ export default function ApiRegistrationsListPage({ kind = 'PLAYER' }: { kind?: R
 
       {error && (
         <Card className="mb-4">
-          <Alert level="danger" title="We couldn’t load the {copy.noun}">
+          <Alert level="danger" title={`We couldn’t load the ${copy.noun}`}>
             {error}
           </Alert>
           <Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>

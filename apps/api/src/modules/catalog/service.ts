@@ -1,7 +1,7 @@
 import { AppError } from '../../shared/errors/app-error';
 import type { CatalogRepository } from './repository';
 import type { ResolveInviteBody } from './schema';
-import type { EventDto, TeamDto, TeamWithEventDto } from './types';
+import type { EventDto, Page, TeamDto, TeamWithEventDto } from './types';
 
 /**
  * Read-only reference data for the registration flow: which events exist, which teams they have, and what a coach
@@ -10,9 +10,9 @@ import type { EventDto, TeamDto, TeamWithEventDto } from './types';
  */
 export interface CatalogService {
   listEvents(): Promise<EventDto[]>;
+  listEventsPage(query: { page: number; pageSize: number }): Promise<Page<EventDto>>;
   getEvent(eventId: string): Promise<EventDto>;
   listTeams(eventId: string): Promise<TeamDto[]>;
-  getTeam(teamId: string): Promise<TeamWithEventDto>;
   resolveInvite(body: ResolveInviteBody): Promise<TeamWithEventDto>;
 }
 
@@ -21,6 +21,7 @@ const eventNotFound = () => AppError.notFound('EVENT_NOT_FOUND', 'Event not foun
 export function createCatalogService(repository: CatalogRepository): CatalogService {
   return {
     listEvents: () => repository.listOpenEvents(),
+    listEventsPage: (query) => repository.listOpenEventsPage(query),
 
     async getEvent(eventId) {
       const event = await repository.findVisibleEvent(eventId);
@@ -31,12 +32,6 @@ export function createCatalogService(repository: CatalogRepository): CatalogServ
     async listTeams(eventId) {
       if (!(await repository.findVisibleEvent(eventId))) throw eventNotFound();
       return repository.listActiveTeams(eventId);
-    },
-
-    async getTeam(teamId) {
-      const found = await repository.findVisibleTeam(teamId);
-      if (!found) throw AppError.notFound('TEAM_NOT_FOUND', 'Team not found');
-      return found;
     },
 
     async resolveInvite(body) {

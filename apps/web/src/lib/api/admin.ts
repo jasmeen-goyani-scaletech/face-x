@@ -1,3 +1,5 @@
+import { cachedRead, invalidateReads } from './cache';
+import { loadAllPages } from './pages';
 import { apiRequest } from './http';
 import type {
   ApiAdminEvent,
@@ -15,26 +17,52 @@ import type {
   UpdateTeamInput
 } from './types';
 
-/** The events of the signed-in admin's organization, in every status. */
-export const listAdminEvents = () => apiRequest<ApiAdminEvent[]>('/admin/events');
+/** The most the API returns for one page of events. */
+const EVENT_PAGE_SIZE = 100;
+
+/**
+ * EVERY event of the signed-in admin's organization, in every status, for the pickers that need the whole list. It reads all the
+ * pages of the paged endpoint (the plain `GET /admin/events` stops at 100), so an organization with more events loses none.
+ */
+export const listAdminEvents = () =>
+  cachedRead('events', () =>
+    loadAllPages(
+      (page) =>
+        apiRequest<ApiPage<ApiAdminEvent>>('/admin/events', { query: { page: String(page), pageSize: String(EVENT_PAGE_SIZE) } }),
+      EVENT_PAGE_SIZE
+    )
+  );
+
+/** One page of the organization's events (the plain list above is for the pickers that need every event). */
+export const listAdminEventsPage = (page: number, pageSize: number) =>
+  cachedRead(`events:page:${page}:${pageSize}`, () =>
+    apiRequest<ApiPage<ApiAdminEvent>>('/admin/events', { query: { page: String(page), pageSize: String(pageSize) } })
+  );
 
 export const getAdminEvent = (eventId: string) => apiRequest<ApiAdminEvent>(`/admin/events/${eventId}`);
 
 /** Creates an event (a draft unless `status` says otherwise) for the admin's organization. */
-export const createAdminEvent = (input: CreateEventInput) => apiRequest<ApiAdminEvent>('/admin/events', { method: 'POST', body: input });
+export const createAdminEvent = (input: CreateEventInput) =>
+  apiRequest<ApiAdminEvent>('/admin/events', { method: 'POST', body: input }).finally(() => invalidateReads('events'));
 
 export const updateAdminEvent = (eventId: string, input: UpdateEventInput) =>
-  apiRequest<ApiAdminEvent>(`/admin/events/${eventId}`, { method: 'PATCH', body: input });
+  apiRequest<ApiAdminEvent>(`/admin/events/${eventId}`, { method: 'PATCH', body: input }).finally(() => invalidateReads('events'));
 
-export const listAdminTeams = (eventId: string) => apiRequest<ApiAdminTeam[]>(`/admin/events/${eventId}/teams`);
+export const listAdminTeams = (eventId: string) => cachedRead(`teams:${eventId}`, () => apiRequest<ApiAdminTeam[]>(`/admin/events/${eventId}/teams`));
+
+/** One page of the teams of every event of the organization, in a single request. */
+export const listAdminTeamsPage = (page: number, pageSize: number) =>
+  cachedRead(`teams:page:${page}:${pageSize}`, () =>
+    apiRequest<ApiPage<ApiAdminTeam>>('/admin/teams', { query: { page: String(page), pageSize: String(pageSize) } })
+  );
 
 export const createAdminTeam = (eventId: string, input: CreateTeamInput) =>
-  apiRequest<ApiAdminTeam>(`/admin/events/${eventId}/teams`, { method: 'POST', body: input });
+  apiRequest<ApiAdminTeam>(`/admin/events/${eventId}/teams`, { method: 'POST', body: input }).finally(() => invalidateReads('teams:'));
 
 export const getAdminTeam = (teamId: string) => apiRequest<ApiAdminTeam>(`/admin/teams/${teamId}`);
 
 export const updateAdminTeam = (teamId: string, input: UpdateTeamInput) =>
-  apiRequest<ApiAdminTeam>(`/admin/teams/${teamId}`, { method: 'PATCH', body: input });
+  apiRequest<ApiAdminTeam>(`/admin/teams/${teamId}`, { method: 'PATCH', body: input }).finally(() => invalidateReads('teams:'));
 
 /** Registration counts by status for one kind of registrant (players unless told otherwise). */
 export const getEventSummary = (eventId: string, registrantType: 'PLAYER' | 'COACH' | 'STAFF' = 'PLAYER') =>
@@ -55,14 +83,23 @@ export function listAdminRegistrations(eventId: string, q: ListAdminRegistration
 }
 
 /** Everyone on the event's day-of roster (registered and not turned down), with check-in state. */
-export const getEventRoster = (eventId: string) => apiRequest<ApiRosterEntry[]>(`/admin/events/${eventId}/roster`);
+export const getEventRoster = (eventId: string) =>
+  loadAllPages(
+    (page) =>
+      apiRequest<ApiPage<ApiRosterEntry>>(`/admin/events/${eventId}/roster`, { query: { page: String(page), pageSize: String(ROSTER_PAGE_SIZE) } }),
+    ROSTER_PAGE_SIZE,
+    (entry) => entry.registrationId
+  );
+
+/** People per request when a device reads the whole roster (the API's most for one page). Read page by page, a roster is never cut short. */
+const ROSTER_PAGE_SIZE = 500;
 
 /**
  * Checks someone in by hand. `clientRequestId` makes a retry safe: the server records one check-in per id, so a check-in
  * resent after a dropped connection can never be counted twice (the offline queue sends its own uuid for this).
  */
-export const checkInManually = (eventId: string, registrationId: string, clientRequestId: string) =>
-  apiRequest<ApiCheckIn>(`/events/${eventId}/check-ins`, { method: 'POST', body: { method: 'MANUAL', registrationId, clientRequestId } });
+export const checkInManually = (eventId: string, registrationId: string, clientRequestId: string, device?: { deviceId: string; deviceCheckedInAt: string }) =>
+  apiRequest<ApiCheckIn>(`/events/${eventId}/check-ins`, { method: 'POST', body: { method: 'MANUAL', registrationId, clientRequestId, ...device } });
 
 /**
  * Switches a person's event-day access off or on. It never changes the registration's status, and switching on overrides

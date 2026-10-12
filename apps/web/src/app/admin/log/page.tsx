@@ -1,8 +1,10 @@
 'use client';
 
 import { ClockIcon } from '@/components/ui/Icons';
-import { formatTime } from '@/lib/format';
+import { formatFullDateTime, formatWhen, checkInVia } from '@/lib/format';
 import EventDayGate, { EventLine, type ReadyRoster } from '@/components/admin/EventDayGate';
+import AdminPagination from '@/components/admin/AdminPagination';
+import { usePagination } from '@/lib/usePagination';
 
 export default function AdminLogPage() {
   return <EventDayGate>{(r) => <AttendanceLog data={r} />}</EventDayGate>;
@@ -13,6 +15,7 @@ function AttendanceLog({ data }: { data: ReadyRoster }) {
   const checkedIn = roster.roster.filter((r) => r.checkedInAt).sort((a, b) => (b.checkedInAt || 0) - (a.checkedInAt || 0));
   const approvedCount = roster.roster.filter((r) => r.approved).length;
   const overrideCount = checkedIn.filter((r) => r.checkedInOverride).length;
+  const pager = usePagination(checkedIn);
 
   return (
     <div>
@@ -35,16 +38,16 @@ function AttendanceLog({ data }: { data: ReadyRoster }) {
         </div>
       ) : (
         <div className="grid gap-2">
-          {checkedIn.map((r) => (
+          {pager.pageItems.map((r) => (
             <div key={r.id} className="rounded-xl border border-[#253029] bg-[#12181f] p-4 flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-bold">{r.firstName} {r.lastName}</div>
                 <div className="text-[#6b7a71] text-[12.5px] capitalize">{r.role} · {r.schoolId}</div>
               </div>
               <div className="text-right shrink-0">
-                <div className="font-mono font-bold text-[#22c55e] text-sm">{formatTime(r.checkedInAt)}</div>
+                <div className="font-mono font-bold text-[#22c55e] text-sm" title={formatFullDateTime(r.checkedInAt)}>{formatWhen(r.checkedInAt)}</div>
                 <div className="text-[#6b7a71] text-[11.5px]">
-                  {r.checkedInMethod}
+                  {checkInVia(r)}
                   {r.checkedInOverride && <span className="text-[#e3ac4a]"> · Override</span>}
                 </div>
               </div>
@@ -52,6 +55,7 @@ function AttendanceLog({ data }: { data: ReadyRoster }) {
           ))}
         </div>
       )}
+      <AdminPagination total={pager.total} page={pager.page} pageSize={pager.pageSize} onPageChange={pager.setPage} onPageSizeChange={pager.setPageSize} noun="people" />
     </div>
   );
 }

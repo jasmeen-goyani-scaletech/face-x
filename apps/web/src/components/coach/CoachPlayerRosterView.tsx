@@ -6,7 +6,7 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import Dialog from '@/components/ui/Dialog';
-import { ChevronLeftIcon, MessageIcon, PhoneIcon, SearchIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
+import { ChevronLeftIcon, PhoneIcon, SearchIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
 import { CoachGateCard, useCoachTeam } from './useCoachTeam';
 import { calcAge } from '@/lib/age';
 import { contactOptions } from '@/lib/contactOptions';
@@ -37,7 +37,7 @@ function Avatar({ player, size }: { player: RosterEntry; size: 'md' | 'lg' }) {
   );
 }
 
-/** Call / text the number on file. Without one, the buttons say so instead of doing nothing. */
+/** Call the number on file. Without one, the buttons say so instead of doing nothing. */
 function ContactActions({ player }: { player: RosterEntry }) {
   const options = contactOptions(player);
   // Parent first (that's who this screen is for), the player's own number if there is no parent number.
@@ -46,14 +46,9 @@ function ContactActions({ player }: { player: RosterEntry }) {
   return (
     <div className="flex gap-2">
       {number ? (
-        <>
-          <a href={`tel:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-            <PhoneIcon size={15} /> Call {who}
-          </a>
-          <a href={`sms:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-            <MessageIcon size={15} /> SMS
-          </a>
-        </>
+        <a href={`tel:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
+          <PhoneIcon size={15} /> Call {who}
+        </a>
       ) : (
         <span className={`${actionBase} cursor-not-allowed border-line bg-surface-2 text-ink-faint`} aria-disabled="true">
           <PhoneIcon size={15} /> No phone on file
@@ -131,9 +126,6 @@ function PlayerDetailDialog({ player, onClose }: { player: RosterEntry | null; o
               <div className="flex gap-2">
                 <a href={`tel:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
                   <PhoneIcon size={15} /> Call
-                </a>
-                <a href={`sms:${number}`} className={`${actionBase} border-line-strong bg-surface text-ink hover:bg-surface-2`}>
-                  <MessageIcon size={15} /> SMS
                 </a>
               </div>
             )}

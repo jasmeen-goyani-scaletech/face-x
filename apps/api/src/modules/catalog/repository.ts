@@ -1,15 +1,15 @@
 import type { Database } from '../../infrastructure/database/database';
-import type { EventDto, TeamDto } from './types';
+import type { EventDto, Page, TeamDto } from './types';
 
 export interface CatalogRepository {
-  /** PUBLISHED events, soonest first. */
+  /** PUBLISHED events, soonest first (the first 100: the plain list; use `listOpenEventsPage` to reach the rest). */
   listOpenEvents(): Promise<EventDto[]>;
+  /** One page of the PUBLISHED events, in the same order as `listOpenEvents`. */
+  listOpenEventsPage(query: { page: number; pageSize: number }): Promise<Page<EventDto>>;
   /** A PUBLISHED or CLOSED event; a DRAFT does not exist as far as families are concerned. */
   findVisibleEvent(eventId: string): Promise<EventDto | null>;
   /** ACTIVE teams of the event, by division then name. */
   listActiveTeams(eventId: string): Promise<TeamDto[]>;
-  /** An ACTIVE team of a visible event. */
-  findVisibleTeam(teamId: string): Promise<{ team: TeamDto; event: EventDto } | null>;
   /** An ACTIVE team of a PUBLISHED event with this invite code. */
   findOpenTeamByInviteCode(inviteCode: string): Promise<{ team: TeamDto; event: EventDto } | null>;
 }
@@ -73,6 +73,20 @@ export function createCatalogRepository(db: Database): CatalogRepository {
       return rows.map(toEvent);
     },
 
+    async listOpenEventsPage({ page, pageSize }) {
+      const total = await db.query<{ n: string }>(
+        `select count(*) as n from public.events e where e.status = 'PUBLISHED'`,
+      );
+      const { rows } = await db.query<EventRow>(
+        `select ${EVENT_COLUMNS} from public.events e
+          where e.status = 'PUBLISHED'
+          order by e.starts_at, e.id
+          limit $1 offset $2`,
+        [pageSize, (page - 1) * pageSize],
+      );
+      return { items: rows.map(toEvent), page, pageSize, total: Number(total.rows[0]?.n ?? 0) };
+    },
+
     async findVisibleEvent(eventId) {
       const { rows } = await db.query<EventRow>(
         `select ${EVENT_COLUMNS} from public.events e
@@ -90,16 +104,6 @@ export function createCatalogRepository(db: Database): CatalogRepository {
         [eventId],
       );
       return rows.map(toTeam);
-    },
-
-    async findVisibleTeam(teamId) {
-      const { rows } = await db.query<EventRow & TeamRow>(
-        `select ${EVENT_COLUMNS}, ${TEAM_COLUMNS}
-           from public.teams t join public.events e on e.id = t.event_id
-          where t.id = $1 and t.status = 'ACTIVE' and e.status in ('PUBLISHED', 'CLOSED')`,
-        [teamId],
-      );
-      return rows[0] ? { team: toTeam(rows[0]), event: toEvent(rows[0]) } : null;
     },
 
     async findOpenTeamByInviteCode(inviteCode) {

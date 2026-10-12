@@ -15,7 +15,6 @@ export function createCatalogRouter(
   router.get('/events', mw.requireAuth, controller.listEvents);
   router.get('/events/:eventId', mw.requireAuth, controller.getEvent);
   router.get('/events/:eventId/teams', mw.requireAuth, controller.listTeams);
-  router.get('/teams/:teamId', mw.requireAuth, controller.getTeam);
   router.post('/teams/resolve-invite', mw.requireAuth, mw.inviteLimiter, controller.resolveInvite);
   return router;
 }

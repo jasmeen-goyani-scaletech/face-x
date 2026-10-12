@@ -8,6 +8,7 @@ import type {
   CreateTeamBody,
   EventAccessBody,
   ListRegistrationsQuery,
+  ListTeamsQuery,
   RejectRegistrationBody,
   ReviewQueueQuery,
   UpdateEventBody,
@@ -36,6 +37,7 @@ import type {
 export interface AdminService {
   /** The events of the caller's organization (none for an admin who has no organization). */
   listEvents(ctx: AuthContext): Promise<AdminEvent[]>;
+  listEventsPage(ctx: AuthContext, query: { page: number; pageSize: number }): Promise<Page<AdminEvent>>;
   summary(eventId: string, registrantType: RegistrantType): Promise<EventSummary>;
   getEvent(eventId: string): Promise<AdminEvent>;
   createEvent(ctx: AuthContext, body: CreateEventBody, meta: RequestMeta): Promise<AdminEvent>;
@@ -46,6 +48,8 @@ export interface AdminService {
     meta: RequestMeta,
   ): Promise<AdminEvent>;
   listTeams(eventId: string): Promise<AdminTeam[]>;
+  /** One page of the teams of all the caller's events (none for an admin who has no organization). */
+  listOrganizationTeams(ctx: AuthContext, query: ListTeamsQuery): Promise<Page<AdminTeam>>;
   createTeam(
     ctx: AuthContext,
     eventId: string,
@@ -61,6 +65,8 @@ export interface AdminService {
   ): Promise<AdminTeam>;
   /** Everyone on the event's day-of roster (registered and not turned down), with check-in state. */
   roster(eventId: string): Promise<EventRosterEntry[]>;
+  /** One page of the same roster, with the size of the whole roster. */
+  rosterPage(eventId: string, query: { page: number; pageSize: number }): Promise<Page<EventRosterEntry>>;
   listRegistrations(
     eventId: string,
     query: ListRegistrationsQuery,
@@ -101,9 +107,24 @@ export function createAdminService(repository: AdminRepository): AdminService {
   return {
     listEvents: (ctx) =>
       ctx.organizationId ? repository.listEvents(ctx.organizationId) : Promise.resolve([]),
+    listEventsPage: (ctx, query) =>
+      ctx.organizationId
+        ? repository.listEventsPage(ctx.organizationId, query)
+        : Promise.resolve({ items: [], ...query, total: 0 }),
+    listOrganizationTeams: (ctx, query) =>
+      ctx.organizationId
+        ? repository.listOrganizationTeams(ctx.organizationId, query)
+        : Promise.resolve({ items: [], ...query, total: 0 }),
     summary: (eventId, registrantType) => repository.summary(eventId, registrantType),
     listTeams: (eventId) => repository.listTeams(eventId),
     roster: (eventId) => repository.roster(eventId),
+    async rosterPage(eventId, { page, pageSize }) {
+      const [items, total] = await Promise.all([
+        repository.roster(eventId, undefined, { limit: pageSize, offset: (page - 1) * pageSize }),
+        repository.rosterCount(eventId),
+      ]);
+      return { items, page, pageSize, total };
+    },
 
     async getEvent(eventId) {
       const event = await repository.findEvent(eventId);

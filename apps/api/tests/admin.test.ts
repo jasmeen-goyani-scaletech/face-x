@@ -370,6 +370,25 @@ describe('GET /admin/events/:eventId/registrations', () => {
     expect(rowsOf(res).map((r) => r.id)).toEqual([waiting.regId]);
     expect(rowsOf(await list(adminA, eventA, '?search=Pendtest')).length).toBe(2);
   });
+  it('a closed (rejected) registration is not "waiting for review": not in the filter, and its count is 0', async () => {
+    const waiting = await family({ first: 'Open', last: 'Closedtest' });
+    await uploadDoc(waiting, SPECS[0]);
+    const closed = await family({ first: 'Shut', last: 'Closedtest' });
+    await uploadDoc(closed, SPECS[0]);
+    await uploadDoc(closed, SPECS[1]);
+    const rejected = await as(app, adminA).post(`${ADMIN}/registrations/${closed.regId}/reject`, {
+      reason: 'Duplicate registration',
+    });
+    expect(rejected.status).toBe(200);
+
+    const pending = await list(adminA, eventA, '?search=Closedtest&documentsPending=true');
+    expect(rowsOf(pending).map((r) => r.id)).toEqual([waiting.regId]); // the closed one is not in the "needs review" queue
+    const res = await list(adminA, eventA, '?search=Closedtest');
+    const all = res.body.data.items as { id: string; documents: { inReview: number } }[];
+    expect(all).toHaveLength(2); // but it is still listed
+    expect(all.find((r) => r.id === closed.regId)?.documents.inReview).toBe(0); // and shows nothing waiting on anyone
+    expect(all.find((r) => r.id === waiting.regId)?.documents.inReview).toBe(1);
+  });
 });
 
 describe('GET /admin/events/:eventId/review-queue', () => {
@@ -713,6 +732,162 @@ describe('GET /admin/events', () => {
     expect(denied.body.error.code).toBe('INSUFFICIENT_ROLE');
     const orphan = await createUser(db, { roles: ['ADMIN'] });
     expect((await as(app, orphan.id).get(`${ADMIN}/events`)).body.data).toEqual([]);
+  });
+});
+
+describe('GET /admin/events with paging', () => {
+  async function ownerWithEvents(count: number) {
+    const own = await createOrg(db);
+    const owner = (await createUser(db, { roles: ['ADMIN'], organizationId: own })).id;
+    const ids: string[] = [];
+    for (let i = 0; i < count; i += 1) {
+      // Distinct start dates, so the newest-first order is unambiguous: the last one created is the newest.
+      ids.push(await createEvent(db, own, { startsAt: new Date(Date.now() + (10 + i) * 86_400_000) }));
+    }
+    await createEvent(db, orgB); // another organization's event: never counted
+    return { owner, newestFirst: [...ids].reverse() };
+  }
+
+  it('without page or pageSize it is still the plain array of every event (what the pickers read)', async () => {
+    const { owner, newestFirst } = await ownerWithEvents(5);
+    const res = await as(app, owner).get(`${ADMIN}/events`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.map((e: { id: string }) => e.id)).toEqual(newestFirst);
+  });
+
+  it('with page / pageSize it returns one page, in the same order, with an accurate total', async () => {
+    const { owner, newestFirst } = await ownerWithEvents(5);
+    const ids = (r: { body: { data: { items: { id: string }[] } } }) => r.body.data.items.map((e) => e.id);
+
+    const first = await as(app, owner).get(`${ADMIN}/events?page=1&pageSize=2`);
+    expect(first.status).toBe(200);
+    expect(first.headers['cache-control']).toBe('no-store');
+    expect(first.body.data).toMatchObject({ page: 1, pageSize: 2, total: 5 });
+    expect(ids(first)).toEqual(newestFirst.slice(0, 2));
+    expect(first.body.data.items[0]).toMatchObject({ name: 'Event', location: 'Field' });
+
+    expect(ids(await as(app, owner).get(`${ADMIN}/events?page=2&pageSize=2`))).toEqual(newestFirst.slice(2, 4));
+    expect(ids(await as(app, owner).get(`${ADMIN}/events?page=3&pageSize=2`))).toEqual(newestFirst.slice(4));
+
+    const beyond = await as(app, owner).get(`${ADMIN}/events?page=9&pageSize=2`);
+    expect(beyond.body.data).toMatchObject({ items: [], page: 9, total: 5 });
+
+    // Either parameter alone asks for a page: the other takes its default.
+    const onlySize = await as(app, owner).get(`${ADMIN}/events?pageSize=3`);
+    expect(onlySize.body.data).toMatchObject({ page: 1, pageSize: 3, total: 5 });
+    expect(ids(onlySize)).toEqual(newestFirst.slice(0, 3));
+    const onlyPage = await as(app, owner).get(`${ADMIN}/events?page=1`);
+    expect(onlyPage.body.data).toMatchObject({ page: 1, pageSize: 25, total: 5 });
+  });
+
+  it('reaches every event of an organization with more than 100: pages of 100 cover them all, once each, newest first', async () => {
+    const own = await createOrg(db);
+    const owner = (await createUser(db, { roles: ['ADMIN'], organizationId: own })).id;
+    const day = 86_400_000;
+    // One insert for 130 events, each a day apart; `createEvent` one by one would be slow for no gain.
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.events (organization_id, name, location, timezone, starts_at, ends_at, registration_fee_cents, status)
+       select $1, 'Event ' || n, 'Field', 'America/Los_Angeles', to_timestamp($2::bigint / 1000.0 + n * 86400),
+              to_timestamp($2::bigint / 1000.0 + n * 86400 + 10800), 0, 'PUBLISHED'
+         from generate_series(1, 130) n returning id`,
+      [own, Date.now() + 10 * day],
+    );
+    expect(rows).toHaveLength(130);
+
+    const one = await as(app, owner).get(`${ADMIN}/events?page=1&pageSize=100`);
+    const two = await as(app, owner).get(`${ADMIN}/events?page=2&pageSize=100`);
+    expect(one.body.data).toMatchObject({ page: 1, pageSize: 100, total: 130 });
+    expect(one.body.data.items).toHaveLength(100);
+    expect(two.body.data.items).toHaveLength(30);
+    const ids = [...one.body.data.items, ...two.body.data.items].map((e: { id: string }) => e.id);
+    expect(new Set(ids).size).toBe(130);
+    expect(new Set(ids)).toEqual(new Set(rows.map((r) => r.id)));
+    const names = [...one.body.data.items, ...two.body.data.items].map((e: { name: string }) => e.name);
+    expect(names[0]).toBe('Event 130'); // newest first
+    expect(names[129]).toBe('Event 1');
+
+    // The plain list is the compatibility form and stops at 100: this is why the screens read pages instead.
+    const plain = await as(app, owner).get(`${ADMIN}/events`);
+    expect(plain.body.data).toHaveLength(100);
+  });
+
+  it('rejects bad paging and unknown parameters with 422, and gives an admin with no organization an empty page', async () => {
+    const { owner } = await ownerWithEvents(1);
+    for (const q of ['page=0', 'pageSize=0', 'pageSize=101', 'page=abc', 'page=1&sort=name']) {
+      const res = await as(app, owner).get(`${ADMIN}/events?${q}`);
+      expect(res.status, q).toBe(422);
+    }
+    expect((await request(app).get(`${ADMIN}/events?page=1`)).status).toBe(401);
+    const parent = await createUser(db, { roles: ['PARENT'] });
+    expect((await as(app, parent.id).get(`${ADMIN}/events?page=1`)).status).toBe(403);
+    const orphan = await createUser(db, { roles: ['ADMIN'] });
+    const empty = await as(app, orphan.id).get(`${ADMIN}/events?page=1&pageSize=5`);
+    expect(empty.body.data).toEqual({ items: [], page: 1, pageSize: 5, total: 0 });
+  });
+});
+
+describe('GET /admin/teams', () => {
+  it("lists the teams of all the organization's events in pages: newest event first, then division and name; nobody else's", async () => {
+    const own = await createOrg(db);
+    const owner = (await createUser(db, { roles: ['ADMIN'], organizationId: own })).id;
+    const older = await createEvent(db, own, { startsAt: new Date(Date.now() + 10 * 86_400_000) });
+    const newer = await createEvent(db, own, { startsAt: new Date(Date.now() + 40 * 86_400_000) });
+    const a = await createTeam(db, older);
+    const b = await createTeam(db, newer);
+    const c = await createTeam(db, newer);
+    await createTeam(db, await createEvent(db, orgB)); // another organization's team
+    const inEvent = async (id: string) =>
+      (await as(app, owner).get(`${ADMIN}/events/${id}/teams`)).body.data as { id: string }[];
+    const expected = [...(await inEvent(newer)), ...(await inEvent(older))].map((t) => t.id);
+    expect(new Set(expected)).toEqual(new Set([a, b, c]));
+
+    const all = await as(app, owner).get(`${ADMIN}/teams?page=1&pageSize=10`);
+    expect(all.status).toBe(200);
+    expect(all.headers['cache-control']).toBe('no-store');
+    expect(all.body.data).toMatchObject({ page: 1, pageSize: 10, total: 3 });
+    expect(all.body.data.items.map((t: { id: string }) => t.id)).toEqual(expected);
+
+    // The same team objects the per-event endpoint returns (that endpoint keeps working unchanged).
+    const perEvent = await inEvent(newer);
+    expect(all.body.data.items.slice(0, perEvent.length)).toEqual(perEvent);
+    expect(all.body.data.items[0]).toMatchObject({
+      eventId: newer,
+      registrations: { players: 0, coaches: 0, staff: 0 },
+    });
+
+    const p1 = await as(app, owner).get(`${ADMIN}/teams?page=1&pageSize=2`);
+    const p2 = await as(app, owner).get(`${ADMIN}/teams?page=2&pageSize=2`);
+    expect(p1.body.data).toMatchObject({ page: 1, pageSize: 2, total: 3 });
+    expect([...p1.body.data.items, ...p2.body.data.items].map((t: { id: string }) => t.id)).toEqual(expected);
+    expect(p2.body.data.items).toHaveLength(1);
+    expect((await as(app, owner).get(`${ADMIN}/teams?page=5&pageSize=2`)).body.data).toMatchObject({
+      items: [],
+      total: 3,
+    });
+  });
+
+  it('defaults to 25 per page, rejects bad paging and unknown parameters, and is for admins only', async () => {
+    const own = await createOrg(db);
+    const owner = (await createUser(db, { roles: ['ADMIN'], organizationId: own })).id;
+    await createTeam(db, await createEvent(db, own));
+    const def = await as(app, owner).get(`${ADMIN}/teams`);
+    expect(def.body.data).toMatchObject({ page: 1, pageSize: 25, total: 1 });
+    for (const q of ['page=0', 'pageSize=0', 'pageSize=101', 'page=abc', 'eventId=x', 'search=a']) {
+      expect((await as(app, owner).get(`${ADMIN}/teams?${q}`)).status, q).toBe(422);
+    }
+    expect((await request(app).get(`${ADMIN}/teams`)).status).toBe(401);
+    const parent = await createUser(db, { roles: ['PARENT'] });
+    const denied = await as(app, parent.id).get(`${ADMIN}/teams`);
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe('INSUFFICIENT_ROLE');
+    const orphan = await createUser(db, { roles: ['ADMIN'] });
+    expect((await as(app, orphan.id).get(`${ADMIN}/teams`)).body.data).toEqual({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+    });
   });
 });
 

@@ -50,6 +50,11 @@ const pdfBody = (over: Record<string, unknown> = {}) => ({
   sizeBytes: 2048,
   ...over,
 });
+/** One document as its owner sees it, read through the registration's list. */
+const docOf = async (f: Family, id: string) =>
+  (await as(app, f.parent.id).get(`${R}/${f.regId}/documents`)).body.data.documents.find(
+    (d: { id: string }) => d.id === id,
+  );
 const upload = (f: Family, body: Record<string, unknown> = pdfBody()) =>
   as(app, f.parent.id).post(`${R}/${f.regId}/documents/upload-url`, body);
 const keyOf = async (documentId: string) =>
@@ -190,6 +195,25 @@ describe('requesting an upload (presigned URL)', () => {
     expect(rows).toEqual([]); // nothing was created by the refused requests
   });
 
+  it('applies a tighter size limit to images than to PDFs', async () => {
+    const f = await family();
+    const MB = 1024 * 1024;
+    // 5 MB is fine for a PDF (10 MB cap) but over the 3 MB cap for a photographed document.
+    expect((await upload(f, pdfBody({ sizeBytes: 5 * MB }))).status).toBe(201);
+    const img = await upload(f, pdfBody({ mimeType: 'image/jpeg', sizeBytes: 3 * MB + 1 }));
+    expect(img.status).toBe(400);
+    expect(img.body.error.code).toBe('FILE_TOO_LARGE');
+    expect((await upload(f, pdfBody({ mimeType: 'image/jpeg', sizeBytes: 3 * MB }))).status).toBe(
+      201,
+    );
+    const photo = await upload(
+      f,
+      pdfBody({ documentType: 'PROFILE_PHOTO', mimeType: 'image/jpeg', sizeBytes: 2 * MB + 1 }),
+    );
+    expect(photo.status).toBe(400);
+    expect(photo.body.error.code).toBe('FILE_TOO_LARGE');
+  });
+
   it('only accepts the player document types the frontend defines', async () => {
     const f = await family();
     for (const documentType of [
@@ -324,8 +348,7 @@ describe('completing an upload (the server verifies what was stored)', () => {
       expect(done.status, name).toBe(422);
       expect(done.body.error.code, name).toBe(code);
       expect(storage.objects.has(key), name).toBe(false); // the bad file is not kept
-      const state = await as(app, f.parent.id).get(`${D}/${id}`);
-      expect(state.body.data.state).toBe('AWAITING_UPLOAD');
+      expect((await docOf(f, id)).state).toBe('AWAITING_UPLOAD');
     }
   });
 
@@ -409,9 +432,9 @@ describe('review workflow', () => {
         reason: 'Name does not match the player.',
       },
     });
-    const family_view = await as(app, f.parent.id).get(`${D}/${id}`);
-    expect(family_view.body.data.review.reason).toBe('Name does not match the player.');
-    expect(JSON.stringify(family_view.body)).not.toContain('internal: check');
+    const family_view = await docOf(f, id);
+    expect(family_view.review.reason).toBe('Name does not match the player.');
+    expect(JSON.stringify(family_view)).not.toContain('internal: check');
     const { rows } = await db.query(
       'select decision, reviewer_id, notes from public.document_reviews where document_id = $1',
       [id],
@@ -438,7 +461,7 @@ describe('review workflow', () => {
         JSON.stringify(body),
       ).toBe(422);
     }
-    expect((await as(app, f.parent.id).get(`${D}/${id}`)).body.data.state).toBe('IN_REVIEW');
+    expect((await docOf(f, id)).state).toBe('IN_REVIEW');
   });
 
   it('lets the family replace a rejected document with a new upload, keeping the history', async () => {
@@ -643,7 +666,6 @@ describe('reading and downloading: authorization', () => {
     const list = await as(app, f.parent.id).get(`${R}/${f.regId}/documents`);
     expect(list.status).toBe(200);
     expect(list.body.data.documents).toHaveLength(1);
-    expect((await as(app, f.parent.id).get(`${D}/${id}`)).status).toBe(200);
 
     const dl = await as(app, f.parent.id).get(`${D}/${id}/download-url`);
     expect(dl.status).toBe(200);
@@ -682,7 +704,6 @@ describe('reading and downloading: authorization', () => {
     });
     const self: Family = { parent: player, playerId: p.body.data.id, regId: reg.body.data.id };
     const id = await uploaded(self);
-    expect((await as(app, player.id).get(`${D}/${id}`)).status).toBe(200);
     expect((await as(app, player.id).get(`${D}/${id}/download-url`)).status).toBe(200);
   });
 
@@ -693,7 +714,6 @@ describe('reading and downloading: authorization', () => {
     const s = as(app, stranger.id);
     const attempts = [
       await s.get(`${R}/${owner.regId}/documents`),
-      await s.get(`${D}/${id}`),
       await s.get(`${D}/${id}/download-url`),
       await s.post(`${D}/${id}/submit`),
       await s.post(`${D}/${id}/complete`),
@@ -717,7 +737,6 @@ describe('reading and downloading: authorization', () => {
     const anon = [
       await request(app).get(`${R}/${f.regId}/documents`),
       await request(app).post(`${R}/${f.regId}/documents/upload-url`).send(pdfBody()),
-      await request(app).get(`${D}/${id}`),
       await request(app).get(`${D}/${id}/download-url`),
       await request(app).post(`${D}/${id}/complete`),
       await request(app).post(`${D}/${id}/submit`),
@@ -735,16 +754,13 @@ describe('reading and downloading: authorization', () => {
     const list = await as(app, adminA).get(`${R}/${f.regId}/documents`);
     expect(list.status).toBe(200);
     expect(list.body.data.documents.map((d: { id: string }) => d.id)).toEqual([id]);
-    expect((await as(app, adminA).get(`${D}/${id}`)).status).toBe(200);
     expect((await as(app, adminA).get(`${D}/${id}/download-url`)).status).toBe(200);
-    expect((await as(app, adminA).get(`${D}/${draftId}`)).status).toBe(404);
     expect((await as(app, adminA).get(`${D}/${draftId}/download-url`)).status).toBe(404);
 
     // admin of another organization: nothing at all
     const b = as(app, adminB);
     for (const res of [
       await b.get(`${R}/${f.regId}/documents`),
-      await b.get(`${D}/${id}`),
       await b.get(`${D}/${id}/download-url`),
       await approve(adminB, id),
     ]) {
@@ -965,7 +981,6 @@ describe('sensitive data protection', () => {
     expect(res.status).toBe(201);
     expect(res.body.data.document.fileName).toBe("x'); DROP TABLE public.documents;--.pdf");
     for (const bad of [encodeURIComponent("1' OR '1'='1"), 'not-a-uuid']) {
-      expect((await as(app, f.parent.id).get(`${D}/${bad}`)).status).toBe(422);
       expect((await as(app, f.parent.id).get(`${D}/${bad}/download-url`)).status).toBe(422);
     }
     const { rows } = await db.query('select 1 from public.documents limit 1');

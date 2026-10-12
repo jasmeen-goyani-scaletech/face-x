@@ -1,7 +1,7 @@
 import Card from '@/components/ui/Card';
 import { AlertTriangleIcon, CheckIcon, PhoneIcon } from '@/components/ui/Icons';
 import { contactOptions } from '@/lib/contactOptions';
-import { formatTime, initialsOf } from '@/lib/format';
+import { formatFullDateTime, formatWhen, initialsOf } from '@/lib/format';
 import type { RosterEntry } from '@/lib/seed';
 
 /** Shared by every action so they line up and meet the 44px touch size. */
@@ -58,7 +58,7 @@ export default function EventDayPlayerRosterCard({ player }: { player: RosterEnt
 
       {player.checkedInAt ? (
         <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-success-soft px-2.5 py-1 text-[12px] font-bold text-success">
-          <CheckIcon size={14} strokeWidth={3} /> Checked in at {formatTime(player.checkedInAt)}
+          <CheckIcon size={14} strokeWidth={3} /> Checked in at <span title={formatFullDateTime(player.checkedInAt)}>{formatWhen(player.checkedInAt)}</span>
         </span>
       ) : (
         <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-warning-soft px-2.5 py-1 text-[12px] font-bold text-warning">

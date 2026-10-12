@@ -2,12 +2,30 @@ import { z } from 'zod';
 import { uuid } from '../../shared/validation/fields';
 
 /**
+ * Optional, for check-ins made on a device that may have been offline: which device, and when IT recorded the check-in. They are
+ * kept in the audit record only. The check-in's own time (`checkedInAt`) is always the server's clock, so a wrong device clock
+ * cannot reorder or backdate anything, and nothing here decides who was first.
+ */
+const deviceFields = {
+  deviceId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z0-9_-]+$/, 'may only contain letters, digits, - and _')
+    .optional(),
+  deviceCheckedInAt: z.iso.datetime({ offset: true, message: 'must be a date and time' }).optional(),
+};
+
+/**
  * Check-in bodies are strict. A FACE check-in names only the scan: the client can never say WHO was recognized.
  * `clientRequestId` is generated once per attempt and resent unchanged on a retry (idempotency).
  */
 export const checkInBodySchema = z.discriminatedUnion('method', [
-  z.object({ method: z.literal('FACE'), scanId: uuid, clientRequestId: uuid }).strict(),
-  z.object({ method: z.literal('MANUAL'), registrationId: uuid, clientRequestId: uuid }).strict(),
+  z.object({ method: z.literal('FACE'), scanId: uuid, clientRequestId: uuid, ...deviceFields }).strict(),
+  z
+    .object({ method: z.literal('MANUAL'), registrationId: uuid, clientRequestId: uuid, ...deviceFields })
+    .strict(),
 ]);
 export type CheckInBody = z.infer<typeof checkInBodySchema>;
 

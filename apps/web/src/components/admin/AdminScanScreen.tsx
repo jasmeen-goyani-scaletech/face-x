@@ -14,7 +14,7 @@ import RoleFilterTabs, { ROLE_FILTER_LABEL, type RoleFilter } from './RoleFilter
 import VerificationHud from './VerificationHud';
 import { entryAccessState } from '@/lib/accessCompliance';
 import { getFaceMatcher, isAutoGrantSafe } from '@/lib/faceMatcher';
-import { formatTime, initialsOf } from '@/lib/format';
+import { formatFullDateTime, formatWhen, initialsOf, checkInVia } from '@/lib/format';
 import EventDayGate, { EventLine, type ReadyRoster } from './EventDayGate';
 import type { RosterEntry } from '@/lib/seed';
 
@@ -138,7 +138,6 @@ function ScannerView({ data }: { data: ReadyRoster }) {
 
   const live = cam.status === 'live';
   const busy = phase === 'comparing' || !!banner || dialogOpen;
-  const detectorDown = face.detector === 'unavailable';
   const scope = roleFilter === 'all' ? '' : ` · ${ROLE_FILTER_LABEL[roleFilter]} only`;
   const status: { ok: boolean; text: string } = !matcher
     ? { ok: false, text: 'Face matching isn’t enabled on this device. Scan & Verify can’t identify anyone yet; use Manual Search & Approve.' }
@@ -287,7 +286,7 @@ function ScannerView({ data }: { data: ReadyRoster }) {
         <aside className="flex min-w-0 flex-col gap-5">
           {phase === 'review' && reviewEntry && (
             <div>
-              <VerificationHud entry={reviewEntry} method="Face Scan" onConfirm={(id, method) => checkIn(reviewEntry, method === 'Manual' ? 'Manual' : 'Face Scan')} />
+              <VerificationHud entry={reviewEntry} method="Face Scan" onConfirm={(_id, method) => checkIn(reviewEntry, method === 'Manual' ? 'Manual' : 'Face Scan')} />
               <div className="mt-3 flex justify-end">
                 <Button
                   variant="secondary"
@@ -330,8 +329,8 @@ function ScannerView({ data }: { data: ReadyRoster }) {
                       <span className="block truncate text-xs text-ink-faint">{r.teamName || '—'}</span>
                     </span>
                     <span className="shrink-0 text-right">
-                      <span className="block text-[12.5px] font-semibold text-success">{formatTime(r.checkedInAt)}</span>
-                      <span className="block text-[11px] text-ink-faint">{r.checkedInMethod}</span>
+                      <span className="block text-[12.5px] font-semibold text-success" title={formatFullDateTime(r.checkedInAt)}>{formatWhen(r.checkedInAt)}</span>
+                      <span className="block text-[11px] text-ink-faint">{checkInVia(r)}</span>
                     </span>
                   </li>
                 ))}

@@ -10,13 +10,26 @@ import type { SignedDownload, SignedUpload, StorageProvider } from './storage-pr
 export const STORAGE_AREAS = {
   'registration-documents': {
     allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
+    /** Ceiling for the area: PDFs are stored as the family made them, so they get the most room. */
     maxBytes: 10 * 1024 * 1024,
+    /**
+     * Tighter caps per type. The web app re-encodes photos of documents to well under a megabyte, so 3 MB for an
+     * image is generous and keeps an unprocessed multi-megapixel original (e.g. a direct API call) out of storage.
+     */
+    maxBytesByType: { 'image/jpeg': 3 * 1024 * 1024, 'image/png': 3 * 1024 * 1024 } as Partial<
+      Record<string, number>
+    >,
   },
   'player-images': {
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    maxBytes: 5 * 1024 * 1024,
+    maxBytes: 2 * 1024 * 1024,
+    maxBytesByType: {} as Partial<Record<string, number>>,
   },
 } as const;
+
+/** The size limit that applies to one file type in one area. */
+export const maxBytesFor = (area: StorageArea, mimeType: string): number =>
+  STORAGE_AREAS[area].maxBytesByType[mimeType] ?? STORAGE_AREAS[area].maxBytes;
 
 export type StorageArea = keyof typeof STORAGE_AREAS;
 
@@ -82,8 +95,15 @@ export function createFileStorage(provider: StorageProvider): FileStorage {
       if (!(policy.allowedMimeTypes as readonly string[]).includes(mimeType)) {
         throw AppError.badRequest('FILE_TYPE_NOT_ALLOWED', 'This file type is not allowed');
       }
-      if (!Number.isInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > policy.maxBytes) {
-        throw AppError.badRequest('FILE_TOO_LARGE', 'File size is not allowed');
+      if (
+        !Number.isInteger(sizeBytes) ||
+        sizeBytes <= 0 ||
+        sizeBytes > maxBytesFor(area, mimeType)
+      ) {
+        throw AppError.badRequest(
+          'FILE_TOO_LARGE',
+          `File is too large (limit ${Math.round(maxBytesFor(area, mimeType) / 1024)} KB for this file type)`,
+        );
       }
       const key = `${area}/${registrationId.toLowerCase()}/${randomUUID()}`;
       const upload = await provider.createUploadUrl(key, {

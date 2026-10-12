@@ -255,7 +255,8 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   const hydrate = useCallback(
     async (registrationId: string, opts: { step?: PlayerStep | 'derive' } = {}) => {
       const [reg0, docs, cons] = await Promise.all([getRegistration(registrationId), listDocuments(registrationId), getConsents(registrationId)]);
-      const pay = reg0.status === 'DRAFT' ? null : await getPayment(registrationId).catch(() => null);
+      // No `.catch`: a failed lookup must not look like "nothing paid" (the server answers for every non-draft player registration).
+      const pay = reg0.status === 'DRAFT' ? null : await getPayment(registrationId);
       const inv = inviteRef.current.status === 'valid' && inviteRef.current.invite.teamId === reg0.team?.id ? inviteRef.current.invite : null;
       setRegistration(reg0);
       setApiDocuments(docs.documents);
@@ -409,7 +410,11 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   }, [phase]);
 
   // ---------------------------------------------------------------- helpers
+  // Set synchronously (state would only show up after the next render), so a double-click is ignored, not run twice.
+  const inFlight = useRef(false);
   const run = useCallback(async (fn: () => Promise<void>): Promise<boolean> => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
     setSaving(true);
     setSaveError(null);
     setApiFieldErrors({});
@@ -421,6 +426,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
       setApiFieldErrors(fieldErrorsOf(e));
       return false;
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   }, []);

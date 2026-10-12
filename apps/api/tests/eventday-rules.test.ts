@@ -139,6 +139,19 @@ describe('check-in body and search term', () => {
       checkInBodySchema.safeParse({ method: 'MANUAL', registrationId: id, clientRequestId: id })
         .success,
     ).toBe(true);
+    // optional: which device made it, and when that device recorded it
+    const device = { deviceId: 'dev_3f2b-9c1e', deviceCheckedInAt: '2026-11-14T09:30:00.000Z' };
+    expect(checkInBodySchema.safeParse({ method: 'MANUAL', registrationId: id, clientRequestId: id, ...device }).success).toBe(true);
+    expect(checkInBodySchema.safeParse({ method: 'FACE', scanId: id, clientRequestId: id, ...device }).success).toBe(true);
+    for (const bad of [
+      { method: 'MANUAL', registrationId: id, clientRequestId: id, deviceId: '' },
+      { method: 'MANUAL', registrationId: id, clientRequestId: id, deviceId: 'has spaces' },
+      { method: 'MANUAL', registrationId: id, clientRequestId: id, deviceId: 'x'.repeat(65) },
+      { method: 'MANUAL', registrationId: id, clientRequestId: id, deviceCheckedInAt: 'yesterday' },
+      { method: 'MANUAL', registrationId: id, clientRequestId: id, deviceCheckedInAt: '2026-11-14T09:30:00' },
+    ]) {
+      expect(checkInBodySchema.safeParse(bad).success).toBe(false);
+    }
     for (const bad of [
       { method: 'FACE', scanId: id, clientRequestId: id, playerId: id },
       { method: 'FACE', registrationId: id, clientRequestId: id },
