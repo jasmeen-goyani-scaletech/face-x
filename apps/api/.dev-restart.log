@@ -1,0 +1,240 @@
+
+> @facex/api@0.1.0 dev D:\workspace\FaceScan\apps\api
+> tsx watch --dns-result-order=ipv4first --env-file-if-exists=.env src/server.ts
+
+<claude-code-hint v="1" type="plugin" value="stripe@claude-plugins-official" />
+[12:11:28.215] [33mWARN[39m (25368): [36mSTRIPE_SECRET_KEY is not set: payments are disabled[39m
+[12:11:28.216] [33mWARN[39m (25368): [36mVAPID_* is not set: push notifications are disabled[39m
+[12:11:28.248] [32mINFO[39m (25368): [36mAPI listening[39m
+    [35mport[39m: 4000
+    [35mnodeEnv[39m: "development"
+[12:11:53.106] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "9a684501-a0d3-40f6-a5df-9b4bb2ac7379",
+      "method": "GET",
+      "path": "/health"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 32
+[12:14:18.793] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "6bc5bd2f-776c-4a3b-99cc-e85ba4a7080b",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 503
+[12:14:19.209] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "857afc15-24ad-42f6-943f-972992eb0f08",
+      "method": "GET",
+      "path": "/api/v1/events"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 317
+[12:14:19.386] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "14ff33ed-0844-43a0-b6c4-ab3d2aa428d9",
+      "method": "GET",
+      "path": "/api/v1/consents/current"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 456
+[12:14:19.399] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "42cef7c7-9e89-4c3b-b758-2854dc24a039",
+      "method": "GET",
+      "path": "/api/v1/events"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 459
+[12:14:19.425] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "8837407c-21e0-4e4f-894b-a8b252353171",
+      "method": "GET",
+      "path": "/api/v1/consents/current"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 349
+[12:14:19.443] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "3b3825dc-cf03-4d17-90f5-f98e8b0cc027",
+      "method": "GET",
+      "path": "/api/v1/registrations"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 416
+[12:14:19.450] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "5bb8f831-d686-4cc0-a5b9-3ef3e85ec540",
+      "method": "GET",
+      "path": "/api/v1/registrations"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 531
+[12:14:19.612] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "7f1c8c18-d2dd-4df3-b2b2-2a7520e003f1",
+      "method": "GET",
+      "path": "/api/v1/registrations/d59cfa02-6ba6-43d0-98c4-54f8fa4dfc76"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 107
+[12:14:19.658] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "4663cb09-7999-4fc5-9c1c-1913d546686b",
+      "method": "GET",
+      "path": "/api/v1/registrations/d59cfa02-6ba6-43d0-98c4-54f8fa4dfc76/documents"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 145
+[12:14:19.770] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "f98d8832-ca6a-40df-8474-158b2e52c888",
+      "method": "GET",
+      "path": "/api/v1/registrations/d59cfa02-6ba6-43d0-98c4-54f8fa4dfc76/consents"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 254
+[12:14:19.824] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "557fa964-4c06-4e66-824f-f7282daf29cd",
+      "method": "GET",
+      "path": "/api/v1/registrations/d59cfa02-6ba6-43d0-98c4-54f8fa4dfc76/payment"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 34
+[12:14:19.874] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "1e530070-91a1-4413-ac62-5f57cb5649fc",
+      "method": "GET",
+      "path": "/api/v1/events/7bc10e4b-99be-4437-8cad-02e7364350c2/teams"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 18
+[12:14:28.122] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "7fd36f9e-a915-44fb-ab4a-0a39766b8b80",
+      "method": "GET",
+      "path": "/api/v1/documents/169f1ee9-f031-446c-86bb-a859002c5448/download-url"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 161
+[12:14:33.782] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "77188b06-8ed7-4707-96fe-1c00887624ea",
+      "method": "GET",
+      "path": "/api/v1/admin/events"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 30
+[12:14:33.906] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "2d1012b7-4898-4e82-b2f6-7760c173c1e6",
+      "method": "GET",
+      "path": "/api/v1/admin/events/7bc10e4b-99be-4437-8cad-02e7364350c2/summary"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 34
+[12:14:33.908] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "29e24888-1637-406a-a162-125fed90e53c",
+      "method": "GET",
+      "path": "/api/v1/admin/events/7bc10e4b-99be-4437-8cad-02e7364350c2/registrations"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 41
+[12:14:48.278] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "c6103c11-7674-49cb-9512-c58fa485f9a8",
+      "method": "GET",
+      "path": "/api/v1/admin/events"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 61
+[12:14:52.975] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "50f1edd7-e691-4b1c-83f0-efd05860bb1d",
+      "method": "GET",
+      "path": "/api/v1/admin/events/7bc10e4b-99be-4437-8cad-02e7364350c2"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 6
+[12:14:53.040] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "a67d10fa-3020-4986-a317-467f2533e439",
+      "method": "GET",
+      "path": "/api/v1/admin/events/7bc10e4b-99be-4437-8cad-02e7364350c2"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 33
+[12:14:53.041] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "81309c51-6607-4927-aeb4-837cffdbf14e",
+      "method": "GET",
+      "path": "/api/v1/admin/events/7bc10e4b-99be-4437-8cad-02e7364350c2/teams"
+    }
+    [35mres[39m: {
+      "statusCode": 200
+    }
+    [35mresponseTime[39m: 44
+[12:15:14.171] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "3f14e89a-4001-4fbc-b99a-a12a6141a94b",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh"
+    }
+    [35mres[39m: {
+      "statusCode": 401
+    }
+    [35mresponseTime[39m: 35
+[12:15:33.846] [32mINFO[39m (25368): [36mrequest completed[39m
+    [35mreq[39m: {
+      "id": "4491b645-5ed5-4ac9-9954-6e205936af22",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh"
+    }
+    [35mres[39m: {
+      "statusCode": 401
+    }
+    [35mresponseTime[39m: 8

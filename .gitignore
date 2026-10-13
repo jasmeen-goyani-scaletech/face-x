@@ -1,12 +1,12 @@
 # dependencies
-/node_modules
+node_modules/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
 
 # production
-/build
+build/
 
 # misc
 .DS_Store
@@ -30,3 +30,16 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# copied from node_modules by scripts/copy-mediapipe.mjs
+apps/web/public/mediapipe/
+
+# env templates stay tracked
+!.env.example
+!**/.env.example
+
+# files kept by the development-only local storage driver (STORAGE_DRIVER=local)
+.local-storage/
+
+# api build output
+apps/api/dist/
