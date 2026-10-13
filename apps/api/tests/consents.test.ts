@@ -546,9 +546,9 @@ describe('the optional face-scan (biometric) consent', () => {
 });
 
 describe('which consents can be recorded', () => {
-  it('only a player registration can record the face-scan consent', () => {
+  it('every kind of registration can record the optional face-scan consent', () => {
     expect(recordableConsentCodes('PLAYER')).toEqual(['GUARDIAN_CONSENT', 'BIOMETRIC_CONSENT']);
-    expect(recordableConsentCodes('COACH')).toEqual(['AB506_ACKNOWLEDGEMENT']);
-    expect(recordableConsentCodes('STAFF')).toEqual([]);
+    expect(recordableConsentCodes('COACH')).toEqual(['AB506_ACKNOWLEDGEMENT', 'BIOMETRIC_CONSENT']);
+    expect(recordableConsentCodes('STAFF')).toEqual(['BIOMETRIC_CONSENT']);
   });
 });

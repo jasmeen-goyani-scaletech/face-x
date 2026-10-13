@@ -34,5 +34,6 @@ export function createFaceModule(options: {
   return createFaceRouter(createFaceController(options.service ?? createFaceServiceFor(options)), {
     requireAuth: options.auth.requireAuth,
     requireFamilyRole: options.auth.requireRole('PARENT', 'PLAYER'),
+    requireStaffRole: options.auth.requireRole('COACH', 'STAFF'),
   });
 }

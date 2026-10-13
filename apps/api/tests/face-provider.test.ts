@@ -35,8 +35,8 @@ runFaceProviderContract(
 );
 
 describe('provider registry', () => {
-  it('registers only the real node-native adapter: no stand-in provider is shipped in production code', () => {
-    expect(registeredFaceProviders()).toEqual(['node-native']);
+  it('registers only the real adapters (node-native, rust-remote): no stand-in provider is shipped in production code', () => {
+    expect(registeredFaceProviders()).toEqual(['node-native', 'rust-remote']);
     expect(createFaceProvider('rekognition', {}, { db: {} as never })).toBeUndefined();
     expect(createFaceProvider(undefined, {}, { db: {} as never })).toBeUndefined();
     expect(createFaceProvider('fake', {}, { db: {} as never })).toBeUndefined();

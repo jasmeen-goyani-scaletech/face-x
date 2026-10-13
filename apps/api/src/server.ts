@@ -49,6 +49,10 @@ function main(): void {
     logger.error(
       'Face enrollment needs STORAGE_* (the photo is read from private storage): disabled',
     );
+  } else if (env.FACE_PROVIDER === 'rust-remote' && !env.RUST_FACE_SERVICE_TOKEN) {
+    logger.warn(
+      'RUST_FACE_SERVICE_TOKEN is not set: faces can be enrolled and scanned, but removing one will fail until it is',
+    );
   } else if (env.FACE_CONSENT_CODE === undefined) {
     logger.warn(
       'FACE_CONSENT_CODE is not set: face enrollment stays disabled until the consent policy is decided',
@@ -100,8 +104,10 @@ function main(): void {
             images: storage.reader,
             consentPolicy: env.FACE_CONSENT_CODE,
             timeoutMs: env.FACE_PROVIDER_TIMEOUT_MS,
+            objectUrl: storage.address ? (key) => storage.address!.urlFor(key) : undefined,
           }
         : undefined,
+    scanImageViewUrl: storage?.signedViewUrl,
     storage: storage
       ? { files: storage.files, inspector: storage.inspector, localRouter: storage.localRouter }
       : undefined,

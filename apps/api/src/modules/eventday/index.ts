@@ -27,6 +27,7 @@ export function createEventDayModule(options: {
   auth: AuthMiddleware;
   provider?: FaceRecognitionProvider;
   policy: FaceScanPolicy;
+  scanImageViewUrl?: (storedUrl: string) => Promise<string | null>;
   rateLimits?: EventDayRateLimits;
   logger: Logger;
 }): Router {
@@ -38,6 +39,7 @@ export function createEventDayModule(options: {
         repository: createEventDayRepository(options.db),
         provider: options.provider,
         policy: options.policy,
+        scanImageViewUrl: options.scanImageViewUrl,
         logger: options.logger,
       }),
     ),

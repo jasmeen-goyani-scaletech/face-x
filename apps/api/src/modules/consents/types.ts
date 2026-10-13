@@ -33,7 +33,9 @@ export const ALL_REGISTRATION_CONSENT_CODES: readonly ConsentCode[] = [
 /** The consents of this kind of registration that may be recorded: its requirements, plus the optional ones. */
 export const recordableConsentCodes = (type: ConsentRegistrantType): readonly string[] => [
   ...CONSENT_CODES_FOR[type],
-  ...(type === 'PLAYER' ? OPTIONAL_PLAYER_CONSENT_CODES : []),
+  // Every kind of registrant can consent to being recognised by face: a player's guardian signs for them, a coach or staff
+  // member for themself. Optional for all of them.
+  ...OPTIONAL_PLAYER_CONSENT_CODES,
 ];
 
 export interface ConsentVersionDto {

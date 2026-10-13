@@ -402,6 +402,7 @@ describe('POST /events/:id/face-scan', () => {
     expect(Object.keys(res.body.data.registration).sort()).toEqual([
       'firstName',
       'lastName',
+      'registrantType',
       'registrationId',
       'registrationNumber',
     ]);
@@ -1386,7 +1387,8 @@ describe('privacy: the image, provider data and secrets never leave memory', () 
     await scan(adminA, eventA, jpegOf(marker)); // REVIEW_REQUIRED
     reset();
 
-    // the face-scan record has no column that could hold an image, a template or an embedding
+    // the face-scan record has no column that could hold an image, a template or an embedding. The one exception is
+    // scan_image_url: the ADDRESS of the frame the face service kept (checked below to hold no image data).
     const { rows: cols } = await db.query<{ column_name: string }>(
       `select column_name from information_schema.columns where table_schema = 'public' and table_name in ('face_scans', 'check_ins')`,
     );
@@ -1394,7 +1396,7 @@ describe('privacy: the image, provider data and secrets never leave memory', () 
       cols
         .map((c) => c.column_name)
         .filter((c) => /image|photo|template|embedding|vector|bytes|blob|candidate/i.test(c)),
-    ).toEqual([]);
+    ).toEqual(['scan_image_url']);
 
     // and no text anywhere near the event-day tables contains the image (its bytes carry the marker)
     for (const table of ['face_scans', 'check_ins', 'audit_logs']) {

@@ -37,6 +37,7 @@ export const buildApi = (
     pushSender?: PushSender;
     faceRecognition?: FaceRecognitionConfig;
     faceScan?: FaceScanPolicy;
+    scanImageViewUrl?: (storedUrl: string) => Promise<string | null>;
     eventDayRateLimits?: EventDayRateLimits;
     inviteLookupsPerMinute?: number;
   } = {},
@@ -51,6 +52,7 @@ export const buildApi = (
     pushSender: options.pushSender,
     faceRecognition: options.faceRecognition,
     faceScan: options.faceScan,
+    scanImageViewUrl: options.scanImageViewUrl,
     // The door limits themselves are tested in their own app; everywhere else they must not interfere.
     eventDayRateLimits: options.eventDayRateLimits ?? {
       scanPerMinute: 1_000_000,

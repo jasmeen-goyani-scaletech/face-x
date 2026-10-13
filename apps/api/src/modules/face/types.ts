@@ -3,7 +3,9 @@
  * reference, no image or score. The only biometric fact exposed is whether an enrollment exists and when.
  */
 export interface FaceProfileStatusDto {
-  playerId: string;
+  /** Exactly one of these is set: the player, or the coach/staff member, the status is about. */
+  playerId?: string;
+  staffProfileId?: string;
   status: 'NOT_ENROLLED' | 'ACTIVE' | 'REVOKED';
   enrolledAt: string | null;
   revokedAt: string | null;

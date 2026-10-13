@@ -5,6 +5,8 @@ import type { ReviewReason } from './matching';
 export interface ScanPersonDto {
   registrationId: string;
   registrationNumber: string;
+  /** Whether this is a player, a coach or a staff member. */
+  registrantType: 'PLAYER' | 'COACH' | 'STAFF';
   firstName: string;
   lastName: string;
 }
@@ -13,11 +15,20 @@ export interface ScanPersonDto {
 export interface ReviewCandidateDto {
   registrationId: string;
   registrationNumber: string;
+  registrantType: 'PLAYER' | 'COACH' | 'STAFF';
   displayName: string;
 }
 
 /** The result of a scan. Scores, provider references and candidate lists beyond a few review names are never returned. */
-export type FaceScanResultDto =
+export type FaceScanResultDto = FaceScanOutcomeDto & {
+  /**
+   * The camera frame this scan was decided on, as a short-lived signed link (or the stored address when it cannot be
+   * signed). Null when no frame was kept.
+   */
+  scanImageUrl?: string | null;
+};
+
+type FaceScanOutcomeDto =
   | {
       scanId: string;
       result: 'MATCH';

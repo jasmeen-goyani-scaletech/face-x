@@ -65,10 +65,12 @@ export interface DocumentServiceDeps {
   storage?: { files: FileStorage; inspector: ObjectInspector };
 }
 
-/** What happens to a player's face after their photo is approved (see FaceService.enrollApprovedPhoto). Must not throw. */
+/** What happens to someone's face after their photo is approved (see FaceService.enrollApprovedPhoto). Must not throw. */
 export interface PhotoApprovedHook {
   afterPhotoApproved(input: {
-    playerId: string;
+    /** Exactly one is set: the player, or the coach/staff member, the photo is of. */
+    playerId: string | null;
+    staffProfileId: string | null;
     documentId: string;
     actorUserId: string;
     meta: RequestMeta;
@@ -424,10 +426,15 @@ export function createDocumentService({
       });
       await readiness.afterChange(access.document.registrationId);
       // The approved photo becomes the player's face, if their guardian consented. The approval above stands whatever happens here.
-      if (body.decision === 'APPROVED' && reviewedType === 'PROFILE_PHOTO' && access.playerId) {
+      if (
+        body.decision === 'APPROVED' &&
+        reviewedType === 'PROFILE_PHOTO' &&
+        (access.playerId || access.staffProfileId)
+      ) {
         await faceEnrollment
           ?.afterPhotoApproved({
             playerId: access.playerId,
+            staffProfileId: access.staffProfileId,
             documentId,
             actorUserId: ctx.userId,
             meta,

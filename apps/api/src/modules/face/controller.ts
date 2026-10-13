@@ -9,6 +9,8 @@ export interface FaceController {
   enroll: RequestHandler;
   get: RequestHandler;
   remove: RequestHandler;
+  getStaff: RequestHandler;
+  removeStaff: RequestHandler;
 }
 
 const caller = (req: Parameters<RequestHandler>[0]) => {
@@ -35,6 +37,19 @@ export function createFaceController(service: FaceService): FaceController {
     remove: async (req, res) => {
       const playerId = uuid.parse(req.params.playerId);
       const data = await service.remove(caller(req), playerId, getRequestMeta(req));
+      res.set('Cache-Control', 'no-store');
+      res.json({ success: true, data });
+    },
+
+    getStaff: async (req, res) => {
+      const staffProfileId = uuid.parse(req.params.staffProfileId);
+      res.set('Cache-Control', 'no-store');
+      res.json({ success: true, data: await service.getStaffStatus(caller(req), staffProfileId) });
+    },
+
+    removeStaff: async (req, res) => {
+      const staffProfileId = uuid.parse(req.params.staffProfileId);
+      const data = await service.removeStaff(caller(req), staffProfileId, getRequestMeta(req));
       res.set('Cache-Control', 'no-store');
       res.json({ success: true, data });
     },

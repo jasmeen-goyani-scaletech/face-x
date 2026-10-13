@@ -60,6 +60,8 @@ export interface EventDayServiceDeps {
   /** Absent: scanning answers 503; check-in by MANUAL and search keep working. Never a fabricated match. */
   provider?: FaceRecognitionProvider;
   policy: FaceScanPolicy;
+  /** Signs the stored address of a scan's frame for the scanner screen. Absent, or null for a foreign address: the address is returned as is. */
+  scanImageViewUrl?: (storedUrl: string) => Promise<string | null>;
   logger: Logger;
 }
 
@@ -128,6 +130,7 @@ export function createEventDayService({
   repository,
   provider,
   policy,
+  scanImageViewUrl,
   logger,
 }: EventDayServiceDeps): EventDayService {
   const notConfigured = () =>
@@ -144,6 +147,7 @@ export function createEventDayService({
       matched?: ResolvedCandidate;
       score?: number;
       candidateCount?: number;
+      scanImageUrl?: string | null;
     },
   ): Promise<string> {
     return repository.transaction(async (r) => {
@@ -153,6 +157,8 @@ export function createEventDayService({
         result: outcome.result,
         provider: provider!.name,
         matchedPlayerId: outcome.result === 'MATCH' ? outcome.matched!.playerId : null,
+        matchedStaffProfileId: outcome.result === 'MATCH' ? outcome.matched!.staffProfileId : null,
+        scanImageUrl: outcome.scanImageUrl ?? null,
         faceProfileId: outcome.result === 'MATCH' ? outcome.matched!.faceProfileId : null,
         score: outcome.score ?? null,
         reasonCode: outcome.reasonCode,
@@ -169,6 +175,10 @@ export function createEventDayService({
           reasonCode: outcome.reasonCode,
           registrationId: outcome.matched?.registrationId ?? null,
           playerId: outcome.result === 'MATCH' ? outcome.matched!.playerId : null,
+          // Only when a coach or staff member was matched, so a player's entry is exactly what it always was.
+          ...(outcome.result === 'MATCH' && outcome.matched!.staffProfileId
+            ? { staffProfileId: outcome.matched!.staffProfileId }
+            : {}),
           candidateCount: outcome.candidateCount ?? null,
         },
         meta,
@@ -193,6 +203,16 @@ export function createEventDayService({
     refusal: { registrationId?: string; scanId?: string },
   ): never {
     return refuse(409, 'PLAYER_NOT_ELIGIBLE', 'This player cannot be checked in', refusal, reasons);
+  }
+
+  /**
+   * The frame's address as the scanner should receive it: signed if it can be, otherwise as stored. An object with the one
+   * key, or nothing when no frame was kept, so a response without a frame is exactly what it was before frames existed.
+   */
+  async function viewable(stored: string | null): Promise<{ scanImageUrl?: string }> {
+    if (!stored) return {};
+    const signed = await scanImageViewUrl?.(stored).catch(() => null);
+    return { scanImageUrl: signed ?? stored };
   }
 
   const toDto = (c: CheckInRow): CheckInDto => ({
@@ -253,8 +273,8 @@ export function createEventDayService({
         refuse(404, 'SCAN_NOT_FOUND', 'Scan not found');
       }
       scanId = scan.id;
-      if (scan.result !== 'MATCH' || !scan.matchedPlayerId) {
-        refuse(409, 'SCAN_NOT_A_MATCH', 'This scan did not identify a player', { scanId });
+      if (scan.result !== 'MATCH' || !(scan.matchedPlayerId || scan.matchedStaffProfileId)) {
+        refuse(409, 'SCAN_NOT_A_MATCH', 'This scan did not identify anyone', { scanId });
       }
       if (scan.ageSeconds > SCAN_MAX_AGE_SECONDS) {
         refuse(409, 'SCAN_EXPIRED', 'This scan has expired; scan again', { scanId });
@@ -262,7 +282,9 @@ export function createEventDayService({
       if (await r.findCheckInByScan(scan.id)) {
         refuse(409, 'SCAN_ALREADY_USED', 'This scan was already used', { scanId });
       }
-      const found = await r.findPlayerRegistrationId(eventId, scan.matchedPlayerId);
+      const found = scan.matchedPlayerId
+        ? await r.findPlayerRegistrationId(eventId, scan.matchedPlayerId)
+        : await r.findStaffRegistrationId(eventId, scan.matchedStaffProfileId!);
       if (!found) notEligible(['REGISTRATION_NOT_FOUND'], { scanId });
       registrationId = found;
       faceProfileId = scan.faceProfileId;
@@ -330,6 +352,9 @@ export function createEventDayService({
         eventId,
         registrationId,
         playerId: eligibility.registration!.playerId,
+        ...(eligibility.registration!.staffProfileId
+          ? { staffProfileId: eligibility.registration!.staffProfileId }
+          : {}),
         method: body.method,
         scanId,
         ...(body.deviceId ? { deviceId: body.deviceId } : {}),
@@ -354,15 +379,19 @@ export function createEventDayService({
       }
 
       let candidates: { reference: string; similarity: number }[];
+      // Where the provider filed this frame, if it kept one. Only the address is recorded.
+      let frameUrl: string | null = null;
       try {
         const found = await withDeadline(policy.timeoutMs, (signal) =>
           provider.identify({
             image: { bytes: image, mimeType: mimeType as FaceImageType },
             maxCandidates: MAX_CANDIDATES,
+            eventId,
             signal,
           }),
         );
         candidates = found.candidates;
+        frameUrl = found.scanImageUrl ?? null;
       } catch (err) {
         const { app, code } = providerFailure(err);
         // The failed attempt is recorded too (reason code only). Recording must never hide the real error.
@@ -382,8 +411,9 @@ export function createEventDayService({
         const scanId = await recordScan(ctx, eventId, meta, {
           result: 'NO_MATCH',
           reasonCode: null,
+          scanImageUrl: frameUrl,
         });
-        return { scanId, result: 'NO_MATCH' };
+        return { scanId, result: 'NO_MATCH', ...(await viewable(frameUrl)) };
       }
 
       if (decision.kind === 'REVIEW_REQUIRED') {
@@ -391,6 +421,7 @@ export function createEventDayService({
           result: 'REVIEW_REQUIRED',
           reasonCode: decision.reason,
           candidateCount: decision.candidates.length,
+          scanImageUrl: frameUrl,
         });
         return {
           scanId,
@@ -399,8 +430,10 @@ export function createEventDayService({
           candidates: decision.candidates.map((c) => ({
             registrationId: c.registrationId,
             registrationNumber: c.registrationNumber,
+            registrantType: c.registrantType,
             displayName: displayName(c),
           })),
+          ...(await viewable(frameUrl)),
         };
       }
 
@@ -417,6 +450,7 @@ export function createEventDayService({
           result: 'REVIEW_REQUIRED',
           reasonCode: 'NOT_ELIGIBLE',
           candidateCount: 1,
+          scanImageUrl: frameUrl,
         });
         return {
           scanId,
@@ -427,9 +461,11 @@ export function createEventDayService({
             {
               registrationId: top.registrationId,
               registrationNumber: top.registrationNumber,
+              registrantType: top.registrantType,
               displayName: displayName(top),
             },
           ],
+          ...(await viewable(frameUrl)),
         };
       }
 
@@ -438,6 +474,7 @@ export function createEventDayService({
         reasonCode: null,
         matched: top,
         score: top.similarity,
+        scanImageUrl: frameUrl,
       });
       return {
         scanId,
@@ -446,10 +483,12 @@ export function createEventDayService({
         registration: {
           registrationId: top.registrationId,
           registrationNumber: top.registrationNumber,
+          registrantType: top.registrantType,
           firstName: top.firstName,
           lastName: top.lastName,
         },
         alreadyCheckedIn: await repository.isCheckedIn(top.registrationId),
+        ...(await viewable(frameUrl)),
       };
     },
 

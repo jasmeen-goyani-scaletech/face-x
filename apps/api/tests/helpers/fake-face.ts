@@ -63,6 +63,7 @@ export function createFakeFaceProvider(options: { name?: string; referencePrefix
     mimeType: string;
     idempotencyKey: string;
     digest: string;
+    role: string | null;
   }[] = [];
   const removed: string[] = [];
   const failures = {
@@ -76,8 +77,11 @@ export function createFakeFaceProvider(options: { name?: string; referencePrefix
     identifyDelayMs: 0,
   };
   /** When set, identify() answers with exactly these candidates (scores chosen by the test), ignoring the image. */
-  const script: { candidates: FaceCandidate[] | null } = { candidates: null };
-  const identifyCalls: { byteLength: number; maxCandidates: number }[] = [];
+  const script: { candidates: FaceCandidate[] | null; scanImageUrl: string | null } = {
+    candidates: null,
+    scanImageUrl: null,
+  };
+  const identifyCalls: { byteLength: number; maxCandidates: number; eventId: string | null }[] = [];
 
   const provider: FaceRecognitionProvider = {
     name,
@@ -88,6 +92,7 @@ export function createFakeFaceProvider(options: { name?: string; referencePrefix
         mimeType: req.image.mimeType,
         idempotencyKey: req.idempotencyKey,
         digest: digest(req.image),
+        role: req.role ?? null,
       });
       if (failures.enrollDelayMs) await sleep(failures.enrollDelayMs, req.signal);
       if (failures.enroll) throw new Error(`provider exploded (${PROVIDER_SECRET})`);
@@ -107,7 +112,11 @@ export function createFakeFaceProvider(options: { name?: string; referencePrefix
       removed.push(reference);
     },
     async identify(req) {
-      identifyCalls.push({ byteLength: req.image.bytes.length, maxCandidates: req.maxCandidates });
+      identifyCalls.push({
+        byteLength: req.image.bytes.length,
+        maxCandidates: req.maxCandidates,
+        eventId: req.eventId ?? null,
+      });
       if (failures.identifyDelayMs) await sleep(failures.identifyDelayMs, req.signal);
       if (req.signal?.aborted) throw new Error('aborted');
       if (failures.identifyExplodes) throw new Error(`provider exploded (${PROVIDER_SECRET})`);
@@ -115,13 +124,18 @@ export function createFakeFaceProvider(options: { name?: string; referencePrefix
       if (contains(req.image, 'NOFACE')) throw new FaceProviderError('NO_FACE_DETECTED');
       if (contains(req.image, 'MULTIFACE')) throw new FaceProviderError('MULTIPLE_FACES');
       if (contains(req.image, 'LOWQUALITY')) throw new FaceProviderError('LOW_QUALITY');
-      if (script.candidates) return { candidates: script.candidates.slice(0, req.maxCandidates) };
+      // Only present when a test scripts one, like a provider that did not keep the frame.
+      const frame = script.scanImageUrl ? { scanImageUrl: script.scanImageUrl } : {};
+      if (script.candidates) {
+        return { candidates: script.candidates.slice(0, req.maxCandidates), ...frame };
+      }
       const d = digest(req.image);
       return {
         candidates: [...identities.entries()]
           .map(([reference, id]) => ({ reference, similarity: id.digest === d ? 0.99 : 0.1 }))
           .sort((a, b) => b.similarity - a.similarity)
           .slice(0, req.maxCandidates),
+        ...frame,
       };
     },
     async verify(req) {

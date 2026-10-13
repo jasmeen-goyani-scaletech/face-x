@@ -60,6 +60,8 @@ export interface AppDeps {
   faceRecognition?: FaceRecognitionConfig;
   /** Event-day matching policy (thresholds, margin, provider deadline). Defaults to the provisional values. */
   faceScan?: FaceScanPolicy;
+  /** Turns the stored URL of a scan's frame into a short-lived signed link for the scanner screen. Absent: the stored URL is returned as is. */
+  scanImageViewUrl?: (storedUrl: string) => Promise<string | null>;
   /** Per-user requests per minute for scanning and searching at the door. Raised only by tests. */
   eventDayRateLimits?: EventDayRateLimits;
   /** Stripe (or another provider). Absent when STRIPE_SECRET_KEY is not configured: payment endpoints answer 503. */
@@ -86,6 +88,7 @@ export function createApp({
   pushSender,
   faceRecognition,
   faceScan = DEFAULT_FACE_SCAN_POLICY,
+  scanImageViewUrl,
   eventDayRateLimits = DEFAULT_EVENT_DAY_RATE_LIMITS,
   checkoutRequestsPerMinute = 10,
   inviteLookupsPerMinute = DEFAULT_INVITE_LOOKUPS_PER_MINUTE,
@@ -236,6 +239,7 @@ export function createApp({
       db,
       auth: auth.middleware,
       provider: faceRecognition?.provider,
+      scanImageViewUrl,
       policy: faceScan,
       rateLimits: eventDayRateLimits,
       logger,

@@ -43,6 +43,8 @@ export interface DocumentAccess {
   eventOrganizationId: string;
   /** The player the registration is for (null for coach and staff registrations). */
   playerId: string | null;
+  /** The coach or staff member the registration is for (null for player registrations). */
+  staffProfileId: string | null;
 }
 
 export interface DocumentRepository {
@@ -259,9 +261,10 @@ function build(q: Queryable, run: DocumentRepository['transaction']): DocumentRe
           is_owner: boolean;
           org: string;
           player_id: string | null;
+          staff_profile_id: string | null;
         }
       >(
-        `select ${DOC_COLUMNS}, r.status as reg_status, r.registrant_type, r.player_id,
+        `select ${DOC_COLUMNS}, r.status as reg_status, r.registrant_type, r.player_id, r.staff_profile_id,
                 ${ownsRegistrantSql('pl', 'sp', '$2')} as is_owner, e.organization_id as org
            from public.documents d
            join public.registrations r on r.id = d.registration_id
@@ -280,6 +283,7 @@ function build(q: Queryable, run: DocumentRepository['transaction']): DocumentRe
             isOwner: r.is_owner,
             eventOrganizationId: r.org,
             playerId: r.player_id,
+            staffProfileId: r.staff_profile_id,
           }
         : null;
     },

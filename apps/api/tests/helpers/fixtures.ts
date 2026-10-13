@@ -63,7 +63,11 @@ export const childBody = (overrides: Record<string, unknown> = {}) => ({
 
 /** Authenticated request helpers: send as a given user id. */
 export function as(app: Express, userId: string) {
-  const call = async (method: 'get' | 'post' | 'patch', path: string, body?: unknown) => {
+  const call = async (
+    method: 'get' | 'post' | 'patch' | 'delete',
+    path: string,
+    body?: unknown,
+  ) => {
     const req = request(app)
       [method](path)
       .set(await bearerFor(userId));
@@ -73,6 +77,7 @@ export function as(app: Express, userId: string) {
     get: (path: string) => call('get', path),
     post: (path: string, body?: unknown) => call('post', path, body ?? {}),
     patch: (path: string, body: unknown) => call('patch', path, body),
+    delete: (path: string) => call('delete', path),
   };
 }
 

@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import type { Router } from 'express';
 import { createFileStorage, storageConfigFromEnv, type FileStorage } from './file-storage';
 import { createLocalStorage } from './local-storage';
+import { createObjectAddress, type ObjectAddress } from './object-address';
 import { createS3ObjectInspector, type ObjectInspector } from './object-inspector';
 import { createS3ObjectReader, type ObjectReader } from './object-reader';
 import { createS3StorageProvider } from './s3-storage';
@@ -15,6 +16,13 @@ export interface Storage {
   reader: ObjectReader;
   /** Only the local driver has one: it serves the signed links itself. */
   localRouter?: Router;
+  /** Permanent object URLs (s3 only: a local folder has no address worth keeping). */
+  address?: ObjectAddress;
+  /**
+   * A short-lived signed link for an object URL of THIS bucket (a face scan's frame, say); null for any other URL.
+   * Undefined for the local driver.
+   */
+  signedViewUrl?: (storedUrl: string) => Promise<string | null>;
 }
 
 interface StorageEnv {
@@ -59,11 +67,20 @@ export function createStorageFromEnv(env: StorageEnv): Storage | null {
 
   const config = storageConfigFromEnv(env);
   if (driver === 's3' && config) {
+    const provider = createS3StorageProvider(config);
+    const address = createObjectAddress(config);
     return {
       driver: 's3',
-      files: createFileStorage(createS3StorageProvider(config)),
+      files: createFileStorage(provider),
       inspector: createS3ObjectInspector(config),
       reader: createS3ObjectReader(config),
+      address,
+      async signedViewUrl(storedUrl) {
+        const key = address.keyOf(storedUrl);
+        if (!key) return null;
+        return (await provider.createDownloadUrl(key, { expiresInSeconds: 5 * 60, inline: true }))
+          .url;
+      },
     };
   }
   return null;

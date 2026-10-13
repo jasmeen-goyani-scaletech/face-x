@@ -11,7 +11,10 @@ export interface ResolvedCandidate {
   faceProfileId: string;
   registrationId: string;
   registrationNumber: string;
-  playerId: string;
+  registrantType: 'PLAYER' | 'COACH' | 'STAFF';
+  /** Exactly one of these two is set. */
+  playerId: string | null;
+  staffProfileId: string | null;
   firstName: string;
   lastName: string;
 }
@@ -22,6 +25,7 @@ export interface ScanRow {
   scannedBy: string;
   result: string;
   matchedPlayerId: string | null;
+  matchedStaffProfileId: string | null;
   faceProfileId: string | null;
   /** Seconds since the scan was recorded, by the database clock. */
   ageSeconds: number;
@@ -50,16 +54,27 @@ function bind(q: Queryable) {
         face_profile_id: string;
         registration_id: string;
         registration_number: string;
-        player_id: string;
+        registrant_type: 'PLAYER' | 'COACH' | 'STAFF';
+        player_id: string | null;
+        staff_profile_id: string | null;
         first_name: string;
         last_name: string;
       }>(
         `select fp.provider_profile_id as reference, fp.id as face_profile_id, r.id as registration_id,
-                r.registration_number, pl.id as player_id, pl.first_name, pl.last_name
+                r.registration_number, r.registrant_type, pl.id as player_id, null::uuid as staff_profile_id,
+                pl.first_name, pl.last_name
            from public.face_profiles fp
            join public.players pl on pl.id = fp.player_id
            join public.registrations r
              on r.player_id = pl.id and r.event_id = $1 and r.registrant_type = 'PLAYER'
+          where fp.provider = $2 and fp.status = 'ACTIVE' and fp.provider_profile_id = any($3::text[])
+         union all
+         select fp.provider_profile_id, fp.id, r.id, r.registration_number, r.registrant_type,
+                null::uuid, sp.id, sp.first_name, sp.last_name
+           from public.face_profiles fp
+           join public.staff_profiles sp on sp.id = fp.staff_profile_id
+           join public.registrations r
+             on r.staff_profile_id = sp.id and r.event_id = $1 and r.registrant_type in ('COACH', 'STAFF')
           where fp.provider = $2 and fp.status = 'ACTIVE' and fp.provider_profile_id = any($3::text[])`,
         [eventId, provider, scored.map((c) => c.reference)],
       );
@@ -69,7 +84,9 @@ function bind(q: Queryable) {
         faceProfileId: r.face_profile_id,
         registrationId: r.registration_id,
         registrationNumber: r.registration_number,
+        registrantType: r.registrant_type,
         playerId: r.player_id,
+        staffProfileId: r.staff_profile_id,
         firstName: r.first_name,
         lastName: r.last_name,
       }));
@@ -93,23 +110,29 @@ function bind(q: Queryable) {
       result: 'MATCH' | 'NO_MATCH' | 'REVIEW_REQUIRED' | 'ERROR';
       provider: string;
       matchedPlayerId?: string | null;
+      matchedStaffProfileId?: string | null;
       faceProfileId?: string | null;
       score?: number | null;
       reasonCode?: string | null;
+      /** Where the face service filed the scanned frame; only this address is kept, never the image. */
+      scanImageUrl?: string | null;
     }): Promise<string> {
       const { rows } = await q.query<{ id: string }>(
         `insert into public.face_scans
-           (event_id, scanned_by, result, matched_player_id, face_profile_id, provider, provider_score, error_code)
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+           (event_id, scanned_by, result, matched_player_id, matched_staff_profile_id, face_profile_id, provider,
+            provider_score, error_code, scan_image_url)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
         [
           input.eventId,
           input.scannedBy,
           input.result,
           input.matchedPlayerId ?? null,
+          input.matchedStaffProfileId ?? null,
           input.faceProfileId ?? null,
           input.provider,
           input.score ?? null,
           input.reasonCode ?? null,
+          input.scanImageUrl ?? null,
         ],
       );
       return rows[0]!.id;
@@ -123,10 +146,11 @@ function bind(q: Queryable) {
         scanned_by: string;
         result: string;
         matched_player_id: string | null;
+        matched_staff_profile_id: string | null;
         face_profile_id: string | null;
         age: string;
       }>(
-        `select id, event_id, scanned_by, result, matched_player_id, face_profile_id,
+        `select id, event_id, scanned_by, result, matched_player_id, matched_staff_profile_id, face_profile_id,
                 extract(epoch from (now() - created_at))::text as age
            from public.face_scans where id = $1 for update`,
         [scanId],
@@ -139,6 +163,7 @@ function bind(q: Queryable) {
             scannedBy: r.scanned_by,
             result: r.result,
             matchedPlayerId: r.matched_player_id,
+            matchedStaffProfileId: r.matched_staff_profile_id,
             faceProfileId: r.face_profile_id,
             ageSeconds: Number(r.age),
           }
@@ -150,6 +175,15 @@ function bind(q: Queryable) {
         `select id from public.registrations
           where event_id = $1 and player_id = $2 and registrant_type = 'PLAYER'`,
         [eventId, playerId],
+      );
+      return rows[0]?.id ?? null;
+    },
+
+    async findStaffRegistrationId(eventId: string, staffProfileId: string): Promise<string | null> {
+      const { rows } = await q.query<{ id: string }>(
+        `select id from public.registrations
+          where event_id = $1 and staff_profile_id = $2 and registrant_type in ('COACH', 'STAFF')`,
+        [eventId, staffProfileId],
       );
       return rows[0]?.id ?? null;
     },

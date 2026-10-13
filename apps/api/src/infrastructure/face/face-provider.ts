@@ -12,6 +12,9 @@
  */
 export type FaceImageType = 'image/jpeg' | 'image/png' | 'image/webp';
 
+/** What an enrolled person is to the application. The provider may tag the template with it; it takes no part in matching. */
+export type FaceSubjectRole = 'PLAYER' | 'STAFF' | 'COACH';
+
 export interface FaceImage {
   bytes: Uint8Array;
   mimeType: FaceImageType;
@@ -28,6 +31,8 @@ export interface EnrollRequest extends Cancellable {
   image: FaceImage;
   /** Stable per attempt, so a retried call cannot create a second identity at the provider. */
   idempotencyKey: string;
+  /** Tags the provider's template with the person's role. Adapters that have no use for it ignore it. */
+  role?: FaceSubjectRole;
 }
 
 export interface EnrollResult {
@@ -37,6 +42,8 @@ export interface EnrollResult {
 
 export interface IdentifyRequest extends Cancellable {
   image: FaceImage;
+  /** The event being scanned for. A provider that keeps the scanned frame files it under this event. */
+  eventId?: string;
   /** At most this many candidates, best first. */
   maxCandidates: number;
 }
@@ -53,6 +60,11 @@ export interface FaceCandidate {
 
 export interface IdentifyResult {
   candidates: FaceCandidate[];
+  /**
+   * Where the provider stored the scanned frame, when it kept one. An address in the provider's storage; the
+   * application records it with the scan and never reads the image itself.
+   */
+  scanImageUrl?: string | null;
 }
 
 export interface VerifyRequest extends Cancellable {

@@ -107,6 +107,19 @@ const envSchema = z
     VAPID_PRIVATE_KEY: optionalString,
     VAPID_SUBJECT: optionalString, // mailto:you@example.org or an https URL
     FACE_PROVIDER_API_KEY: optionalString,
+    // The "rust-remote" provider: base URL of the face_z_BE service including its version prefix, e.g. https://host/v1
+    RUST_FACE_SERVICE_URL: z
+      .string()
+      .trim()
+      .refine(
+        (v) => URL.canParse(v) && /^https?:$/.test(new URL(v).protocol),
+        'must be an http(s) URL',
+      )
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+    // Bearer token for the face service's /admin routes (its ADMIN_TOKEN). It is what lets this API hard-delete a person's
+    // face data when they are removed or re-enroll. Backend only.
+    RUST_FACE_SERVICE_TOKEN: optionalString,
     FACE_PROVIDER_URL: optionalString,
     // The "node-native" provider keeps face descriptors in this database, encrypted with AES-256-GCM under this key: 32 random
     // bytes, base64 (node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"). Backend only; losing it makes
@@ -131,6 +144,26 @@ const envSchema = z
         code: 'custom',
         path: ['FACE_REVIEW_THRESHOLD'],
         message: 'must not be higher than FACE_MATCH_THRESHOLD',
+      });
+    }
+    if (env.FACE_PROVIDER === 'rust-remote' && !env.RUST_FACE_SERVICE_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['RUST_FACE_SERVICE_URL'],
+        message: 'is required when FACE_PROVIDER=rust-remote',
+      });
+    }
+    // Removing a face needs the token. Development may run without it (enrolling and scanning work; removing answers 503 with
+    // a log line), production may not: a deployment that cannot delete biometric data must not start.
+    if (
+      env.FACE_PROVIDER === 'rust-remote' &&
+      env.NODE_ENV === 'production' &&
+      !env.RUST_FACE_SERVICE_TOKEN
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['RUST_FACE_SERVICE_TOKEN'],
+        message: 'is required when FACE_PROVIDER=rust-remote (removing a face needs the service admin token)',
       });
     }
     if (env.FACE_PROVIDER === 'node-native' && !env.FACE_ENCRYPTION_KEY) {

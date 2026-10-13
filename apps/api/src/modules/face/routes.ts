@@ -5,6 +5,8 @@ export interface FaceRouteMiddleware {
   requireAuth: RequestHandler;
   /** PARENT or PLAYER: the roles that manage their own players. */
   requireFamilyRole: RequestHandler;
+  /** COACH or STAFF: the roles that manage their own face profile. */
+  requireStaffRole: RequestHandler;
 }
 
 /**
@@ -26,6 +28,14 @@ export function createFaceRouter(controller: FaceController, mw: FaceRouteMiddle
     mw.requireAuth,
     mw.requireFamilyRole,
     controller.remove,
+  );
+  // A coach or staff member's own face profile (they are enrolled when an admin approves their photo).
+  router.get('/staff-profiles/:staffProfileId/face-profile', mw.requireAuth, controller.getStaff);
+  router.delete(
+    '/staff-profiles/:staffProfileId/face-profile',
+    mw.requireAuth,
+    mw.requireStaffRole,
+    controller.removeStaff,
   );
   return router;
 }

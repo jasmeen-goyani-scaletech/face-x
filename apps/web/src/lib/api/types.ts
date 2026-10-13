@@ -582,11 +582,13 @@ export interface ApiCheckIn {
 export interface ApiFaceScanCandidate {
   registrationId: string;
   registrationNumber: string;
+  /** A player, a coach or a staff member: all three are matched by face. */
+  registrantType: 'PLAYER' | 'COACH' | 'STAFF';
   displayName: string;
 }
 
 /** What the server says about one photo of someone at the door. */
-export type ApiFaceScan =
+export type ApiFaceScan = (
   | { scanId: string; result: 'NO_MATCH' }
   | { scanId: string; result: 'REVIEW_REQUIRED'; reason: string; candidates: ApiFaceScanCandidate[]; eligibility?: string[] }
   | {
@@ -594,9 +596,19 @@ export type ApiFaceScan =
       result: 'MATCH';
       /** The scan can be used to check in until this time. */
       expiresAt: string;
-      registration: { registrationId: string; registrationNumber: string; firstName: string; lastName: string };
+      registration: {
+        registrationId: string;
+        registrationNumber: string;
+        registrantType: 'PLAYER' | 'COACH' | 'STAFF';
+        firstName: string;
+        lastName: string;
+      };
       alreadyCheckedIn: boolean;
-    };
+    }
+) & {
+  /** The camera frame this scan was decided on, as a short-lived signed link. Absent when no frame was kept. */
+  scanImageUrl?: string;
+};
 
 export interface ApiEventSummary {
   eventId: string;

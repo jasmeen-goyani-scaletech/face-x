@@ -59,7 +59,7 @@ export interface EligibilityResult {
   eligible: boolean;
   reasons: EligibilityReason[];
   /** Present when the registration exists for this event (even if not eligible). */
-  registration: { id: string; playerId: string | null } | null;
+  registration: { id: string; playerId: string | null; staffProfileId: string | null } | null;
 }
 
 const NOT_FOUND: EligibilityResult = {
@@ -88,11 +88,12 @@ export async function checkEligibility(
   const { rows } = await q.query<{
     id: string;
     player_id: string | null;
+    staff_profile_id: string | null;
     registrant_type: string;
     event_access_disabled: boolean;
     event_status: string;
   }>(
-    `select r.id, r.player_id, r.registrant_type, r.event_access_disabled, e.status as event_status
+    `select r.id, r.player_id, r.staff_profile_id, r.registrant_type, r.event_access_disabled, e.status as event_status
        from public.registrations r
        join public.events e on e.id = r.event_id
       where r.id = $1 and r.event_id = $2 ${options.lock ? 'for share of r' : ''}`,
@@ -105,13 +106,15 @@ export async function checkEligibility(
   if (!report) return NOT_FOUND;
 
   let faceProfileActive = false;
-  // A face profile belongs to a player; a coach or staff member checks in by hand (MANUAL) until their own enrollment exists.
-  if (input.method === 'FACE' && row.player_id) {
+  // A face profile belongs to a player or to a coach/staff member. Without one, a person can still be checked in by hand.
+  const personColumn = row.player_id ? 'player_id' : row.staff_profile_id ? 'staff_profile_id' : null;
+  if (input.method === 'FACE' && personColumn) {
+    // `personColumn` is one of two constants chosen just above, never input.
     const { rows: profile } = await q.query(
       `select 1 from public.face_profiles
-        where player_id = $1 and status = 'ACTIVE' and ($2::uuid is null or id = $2::uuid)
+        where ${personColumn} = $1 and status = 'ACTIVE' and ($2::uuid is null or id = $2::uuid)
         limit 1`,
-      [row.player_id, input.faceProfileId ?? null],
+      [row.player_id ?? row.staff_profile_id, input.faceProfileId ?? null],
     );
     faceProfileActive = profile.length > 0;
   }
@@ -131,6 +134,6 @@ export async function checkEligibility(
   return {
     eligible: reasons.length === 0,
     reasons,
-    registration: { id: row.id, playerId: row.player_id },
+    registration: { id: row.id, playerId: row.player_id, staffProfileId: row.staff_profile_id },
   };
 }
