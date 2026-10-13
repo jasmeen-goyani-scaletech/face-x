@@ -7,29 +7,33 @@ import type { SignedDownload, SignedUpload, StorageProvider } from './storage-pr
  * Storage areas inside the single private bucket. The area and registration are part of every key, so a
  * key can be checked against the registration a caller is authorized for.
  */
+export const DOCX_MIME_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Default and ceiling for DOCUMENT_MAX_BYTES (one limit for every document type). */
+export const DEFAULT_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
+export const DOCUMENT_MAX_BYTES_CEILING = 10 * 1024 * 1024;
+
 export const STORAGE_AREAS = {
   'registration-documents': {
-    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png'],
-    /** Ceiling for the area: PDFs are stored as the family made them, so they get the most room. */
-    maxBytes: 10 * 1024 * 1024,
-    /**
-     * Tighter caps per type. The web app re-encodes photos of documents to well under a megabyte, so 3 MB for an
-     * image is generous and keeps an unprocessed multi-megapixel original (e.g. a direct API call) out of storage.
-     */
-    maxBytesByType: { 'image/jpeg': 3 * 1024 * 1024, 'image/png': 3 * 1024 * 1024 } as Partial<
-      Record<string, number>
-    >,
+    // DOCX is text the extractor can read; the legacy binary .doc is not accepted (nothing here can read it).
+    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png', DOCX_MIME_TYPE],
+    /** The highest DOCUMENT_MAX_BYTES may go; the limit actually applied is set when storage is created. */
+    maxBytes: DOCUMENT_MAX_BYTES_CEILING,
   },
   'player-images': {
     allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
     maxBytes: 2 * 1024 * 1024,
-    maxBytesByType: {} as Partial<Record<string, number>>,
   },
 } as const;
 
-/** The size limit that applies to one file type in one area. */
-export const maxBytesFor = (area: StorageArea, mimeType: string): number =>
-  STORAGE_AREAS[area].maxBytesByType[mimeType] ?? STORAGE_AREAS[area].maxBytes;
+/** Size limits per area as configured (documents: DOCUMENT_MAX_BYTES). */
+export type StorageLimits = Record<StorageArea, number>;
+
+export const storageLimits = (documentMaxBytes = DEFAULT_DOCUMENT_MAX_BYTES): StorageLimits => ({
+  'registration-documents': Math.min(documentMaxBytes, DOCUMENT_MAX_BYTES_CEILING),
+  'player-images': STORAGE_AREAS['player-images'].maxBytes,
+});
 
 export type StorageArea = keyof typeof STORAGE_AREAS;
 
@@ -74,7 +78,10 @@ export interface FileStorage {
   remove(input: { key: string; registrationId: string }): Promise<void>;
 }
 
-export function createFileStorage(provider: StorageProvider): FileStorage {
+export function createFileStorage(
+  provider: StorageProvider,
+  limits: StorageLimits = storageLimits(),
+): FileStorage {
   const ownedKey = (key: string, registrationId: string): string => {
     const parsed = keySchema.safeParse(key);
     if (!parsed.success || key.split('/')[1] !== registrationId.toLowerCase()) {
@@ -95,14 +102,11 @@ export function createFileStorage(provider: StorageProvider): FileStorage {
       if (!(policy.allowedMimeTypes as readonly string[]).includes(mimeType)) {
         throw AppError.badRequest('FILE_TYPE_NOT_ALLOWED', 'This file type is not allowed');
       }
-      if (
-        !Number.isInteger(sizeBytes) ||
-        sizeBytes <= 0 ||
-        sizeBytes > maxBytesFor(area, mimeType)
-      ) {
+      const maxBytes = limits[area];
+      if (!Number.isInteger(sizeBytes) || sizeBytes <= 0 || sizeBytes > maxBytes) {
         throw AppError.badRequest(
           'FILE_TOO_LARGE',
-          `File is too large (limit ${Math.round(maxBytesFor(area, mimeType) / 1024)} KB for this file type)`,
+          `File is too large (limit ${Math.round(maxBytes / 1024)} KB for this file type)`,
         );
       }
       const key = `${area}/${registrationId.toLowerCase()}/${randomUUID()}`;

@@ -13,6 +13,8 @@ import type { PushSender } from '../../src/infrastructure/push/push-sender';
 import type { PaymentProvider } from '../../src/infrastructure/payments/payment-provider';
 import type { FileStorage } from '../../src/infrastructure/storage/file-storage';
 import type { ObjectInspector } from '../../src/infrastructure/storage/object-inspector';
+import type { ObjectReader } from '../../src/infrastructure/storage/object-reader';
+import type { DocumentExtractionConfig } from '../../src/modules/extraction';
 import { createAuthMiddleware } from '../../src/middleware/auth';
 import { createErrorHandler, notFoundHandler } from '../../src/middleware/error-handler';
 import type { AuthRateLimitConfig } from '../../src/middleware/rate-limit';
@@ -32,7 +34,14 @@ export const buildApi = (
   options: {
     logger?: Logger;
     rateLimits?: AuthRateLimitConfig;
-    storage?: { files: FileStorage; inspector: ObjectInspector; localRouter?: Router };
+    storage?: {
+      files: FileStorage;
+      inspector: ObjectInspector;
+      reader?: ObjectReader;
+      localRouter?: Router;
+    };
+    documentExtraction?: DocumentExtractionConfig;
+    extractionsPerMinute?: number;
     payments?: PaymentProvider;
     pushSender?: PushSender;
     faceRecognition?: FaceRecognitionConfig;
@@ -53,6 +62,8 @@ export const buildApi = (
     faceRecognition: options.faceRecognition,
     faceScan: options.faceScan,
     scanImageViewUrl: options.scanImageViewUrl,
+    documentExtraction: options.documentExtraction,
+    extractionsPerMinute: options.extractionsPerMinute ?? 1_000_000,
     // The door limits themselves are tested in their own app; everywhere else they must not interfere.
     eventDayRateLimits: options.eventDayRateLimits ?? {
       scanPerMinute: 1_000_000,

@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { EnvValidationError, parseEnv } from './config/env';
 import { createLogger } from './config/logger';
 import { createDatabase } from './infrastructure/database/database';
+import { createDocumentExtractor } from './infrastructure/extraction/provider-registry';
 import { createFaceProvider } from './infrastructure/face/provider-registry';
 import { createWebPushSender } from './infrastructure/push/web-push-sender';
 import { createStripePaymentProvider } from './infrastructure/payments/stripe-provider';
@@ -60,6 +61,19 @@ function main(): void {
   } else if (env.FACE_CONSENT_CODE === 'NONE') {
     logger.warn('FACE_CONSENT_CODE=NONE: face enrollment does NOT require biometric consent');
   }
+  const extractor = createDocumentExtractor(env.EXTRACTION_PROVIDER, env);
+  if (env.EXTRACTION_PROVIDER && !extractor) {
+    logger.error(
+      { provider: env.EXTRACTION_PROVIDER },
+      'EXTRACTION_PROVIDER has no adapter: document extraction is disabled',
+    );
+  } else if (!extractor) {
+    logger.warn('EXTRACTION_PROVIDER is not set: document extraction is disabled');
+  } else if (!storage) {
+    logger.error(
+      'Document extraction needs STORAGE_* (the file is read from private storage): disabled',
+    );
+  }
   const pushSender =
     env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT
       ? createWebPushSender({
@@ -108,8 +122,20 @@ function main(): void {
           }
         : undefined,
     scanImageViewUrl: storage?.signedViewUrl,
+    documentExtraction: extractor
+      ? {
+          extractor,
+          timeoutMs: env.EXTRACTION_TIMEOUT_MS,
+          maxBytes: env.DOCUMENT_MAX_BYTES,
+        }
+      : undefined,
     storage: storage
-      ? { files: storage.files, inspector: storage.inspector, localRouter: storage.localRouter }
+      ? {
+          files: storage.files,
+          inspector: storage.inspector,
+          reader: storage.reader,
+          localRouter: storage.localRouter,
+        }
       : undefined,
   });
 

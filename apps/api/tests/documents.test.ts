@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Writable } from 'node:stream';
 import pino from 'pino';
 import request from 'supertest';
@@ -5,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { REDACT_PATHS } from '../src/config/logger';
 import type { Database } from '../src/infrastructure/database/database';
 import { as, createChild, createEvent, createOrg, createTeam } from './helpers/fixtures';
+import { createFileStorage, storageLimits } from '../src/infrastructure/storage/file-storage';
 import { createFakeStorage, fileBytes, type FakeStorage } from './helpers/fake-storage';
 import { buildApi, createUser, openTestDb } from './helpers/test-app';
 
@@ -33,6 +35,7 @@ beforeAll(async () => {
 afterAll(() => db.close());
 
 const R = '/api/v1/registrations';
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const D = '/api/v1/documents';
 
 async function family(event = eventA) {
@@ -195,15 +198,15 @@ describe('requesting an upload (presigned URL)', () => {
     expect(rows).toEqual([]); // nothing was created by the refused requests
   });
 
-  it('applies a tighter size limit to images than to PDFs', async () => {
+  it('applies one size limit to every document type (DOCUMENT_MAX_BYTES, default 5 MiB)', async () => {
     const f = await family();
     const MB = 1024 * 1024;
-    // 5 MB is fine for a PDF (10 MB cap) but over the 3 MB cap for a photographed document.
-    expect((await upload(f, pdfBody({ sizeBytes: 5 * MB }))).status).toBe(201);
-    const img = await upload(f, pdfBody({ mimeType: 'image/jpeg', sizeBytes: 3 * MB + 1 }));
-    expect(img.status).toBe(400);
-    expect(img.body.error.code).toBe('FILE_TOO_LARGE');
-    expect((await upload(f, pdfBody({ mimeType: 'image/jpeg', sizeBytes: 3 * MB }))).status).toBe(
+    for (const mimeType of ['application/pdf', 'image/jpeg', 'image/png', DOCX]) {
+      const over = await upload(f, pdfBody({ mimeType, sizeBytes: 5 * MB + 1 }));
+      expect(over.status, mimeType).toBe(400);
+      expect(over.body.error.code).toBe('FILE_TOO_LARGE');
+    }
+    expect((await upload(f, pdfBody({ mimeType: 'image/jpeg', sizeBytes: 5 * MB }))).status).toBe(
       201,
     );
     const photo = await upload(
@@ -212,6 +215,45 @@ describe('requesting an upload (presigned URL)', () => {
     );
     expect(photo.status).toBe(400);
     expect(photo.body.error.code).toBe('FILE_TOO_LARGE');
+  });
+
+  it('raises the document limit when DOCUMENT_MAX_BYTES is set, never past 10 MiB', async () => {
+    const MB = 1024 * 1024;
+    const files = createFileStorage(createFakeStorage().provider, storageLimits(8 * MB));
+    const big = { area: 'registration-documents' as const, registrationId: randomUUID() };
+    await expect(
+      files.issueUpload({ ...big, mimeType: 'application/pdf', sizeBytes: 8 * MB }),
+    ).resolves.toMatchObject({ method: 'PUT' });
+    await expect(
+      files.issueUpload({ ...big, mimeType: 'application/pdf', sizeBytes: 8 * MB + 1 }),
+    ).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
+    expect(storageLimits(50 * MB)['registration-documents']).toBe(10 * MB);
+  });
+
+  it('accepts a DOCX (a ZIP) but not a legacy .doc or another ZIP passed off as DOCX', async () => {
+    const f = await family();
+    const docx = fileBytes.docx();
+    const id = await uploaded(
+      f,
+      pdfBody({ mimeType: DOCX, fileName: 'transcript.docx', sizeBytes: docx.length }),
+      docx,
+    );
+    expect((await docOf(f, id)).state).toBe('UPLOADED');
+
+    const doc = await upload(
+      f,
+      pdfBody({ documentType: 'SCHOOL_ID', mimeType: 'application/msword' }),
+    );
+    expect(doc.status).toBe(400);
+    expect(doc.body.error.code).toBe('FILE_TYPE_NOT_ALLOWED');
+
+    // Declared DOCX, but the bytes are a PDF: refused at confirmation like any other mismatch.
+    const res = await upload(f, pdfBody({ documentType: 'SCHOOL_ID', mimeType: DOCX }));
+    const fakeId = res.body.data.document.id as string;
+    storage.put(await keyOf(fakeId), fileBytes.pdf(2048));
+    const done = await as(app, f.parent.id).post(`${D}/${fakeId}/complete`);
+    expect(done.status).toBe(422);
+    expect(done.body.error.code).toBe('FILE_CONTENT_MISMATCH');
   });
 
   it('only accepts the player document types the frontend defines', async () => {

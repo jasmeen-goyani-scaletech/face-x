@@ -6,6 +6,7 @@
 const PATTERNS: [RegExp, string][] = [
   [/\b[sr]k_(?:test|live)_[A-Za-z0-9]+/g, '[REDACTED_KEY]'],
   [/\bwhsec_[A-Za-z0-9]+/g, '[REDACTED_SECRET]'],
+  [/\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{16,}/g, '[REDACTED_KEY]'],
   [/\bAKIA[0-9A-Z]{8,}/g, '[REDACTED_KEY]'],
   [/X-Amz-(?:Signature|Credential|Security-Token)=[^&\s"']+/gi, 'X-Amz-[REDACTED]'],
   [/https:\/\/checkout\.stripe\.com\/\S+/g, '[REDACTED_CHECKOUT_URL]'],

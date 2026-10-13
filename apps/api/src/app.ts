@@ -14,6 +14,7 @@ import type { PushSender } from './infrastructure/push/push-sender';
 import type { PaymentProvider } from './infrastructure/payments/payment-provider';
 import type { FileStorage } from './infrastructure/storage/file-storage';
 import type { ObjectInspector } from './infrastructure/storage/object-inspector';
+import type { ObjectReader } from './infrastructure/storage/object-reader';
 import type { AuthRateLimitConfig } from './middleware/rate-limit';
 import { createAuthModule, createAuthRepository } from './modules/auth';
 import { createCoachTeamModule } from './modules/coachteam';
@@ -27,6 +28,11 @@ import {
   type EventDayRateLimits,
   type FaceScanPolicy,
 } from './modules/eventday';
+import {
+  createExtractionModule,
+  DEFAULT_EXTRACTIONS_PER_MINUTE,
+  type DocumentExtractionConfig,
+} from './modules/extraction';
 import { createEventAccessRepository, createEventAccessService } from './modules/events';
 import { createHealthModule, createHealthRepository } from './modules/health';
 import { createNotificationsModule } from './modules/notifications';
@@ -55,7 +61,13 @@ export interface AppDeps {
   logger: Logger;
   db: Database;
   /** Private object storage. Absent when STORAGE_* is not configured (file operations then answer 503). */
-  storage?: { files: FileStorage; inspector: ObjectInspector; localRouter?: Router };
+  storage?: {
+    files: FileStorage;
+    inspector: ObjectInspector;
+    /** Server-side reads (document extraction). Absent: extraction answers 503. */
+    reader?: ObjectReader;
+    localRouter?: Router;
+  };
   /** Face recognition provider and the image reader it needs. Absent: enrollment and removal answer 503. */
   faceRecognition?: FaceRecognitionConfig;
   /** Event-day matching policy (thresholds, margin, provider deadline). Defaults to the provisional values. */
@@ -64,6 +76,10 @@ export interface AppDeps {
   scanImageViewUrl?: (storedUrl: string) => Promise<string | null>;
   /** Per-user requests per minute for scanning and searching at the door. Raised only by tests. */
   eventDayRateLimits?: EventDayRateLimits;
+  /** AI document field extraction (provider, deadline, size cap). Absent: the extract endpoint answers 503. */
+  documentExtraction?: DocumentExtractionConfig;
+  /** Per-user document extractions per minute (default 10). Raised only by tests. */
+  extractionsPerMinute?: number;
   /** Stripe (or another provider). Absent when STRIPE_SECRET_KEY is not configured: payment endpoints answer 503. */
   payments?: PaymentProvider;
   /** Web Push delivery (VAPID). Absent when VAPID_* is not configured: subscribing answers 503 and nothing is sent. */
@@ -87,6 +103,8 @@ export function createApp({
   payments,
   pushSender,
   faceRecognition,
+  documentExtraction,
+  extractionsPerMinute = DEFAULT_EXTRACTIONS_PER_MINUTE,
   faceScan = DEFAULT_FACE_SCAN_POLICY,
   scanImageViewUrl,
   eventDayRateLimits = DEFAULT_EVENT_DAY_RATE_LIMITS,
@@ -209,6 +227,17 @@ export function createApp({
         afterPhotoApproved: (input) => faceService.enrollApprovedPhoto(input),
       },
     ),
+  );
+  app.use(
+    '/api/v1',
+    createExtractionModule({
+      db,
+      auth: auth.middleware,
+      config: documentExtraction,
+      reader: storage?.reader,
+      logger,
+      requestsPerMinute: extractionsPerMinute,
+    }),
   );
   app.use('/api/v1', createCoachTeamModule(db, auth.middleware));
   app.use(

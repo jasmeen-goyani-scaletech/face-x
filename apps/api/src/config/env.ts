@@ -98,6 +98,30 @@ const envSchema = z
     FACE_REVIEW_THRESHOLD: optionalNumber(z.number().min(0).max(1)),
     FACE_AMBIGUITY_MARGIN: optionalNumber(z.number().min(0).max(1)),
     FACE_SCAN_TIMEOUT_MS: optionalNumber(z.number().int().min(500).max(30_000)),
+    // AI document field extraction (POST /documents/:id/extract). EXTRACTION_PROVIDER names a registered adapter ("openai");
+    // unset = extraction answers 503. The document is sent to that provider for each call (see docs/document-verification-api.md).
+    EXTRACTION_PROVIDER: z
+      .string()
+      .trim()
+      .regex(/^[a-z0-9-]{1,40}$/, 'must be a short lowercase name')
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+    OPENAI_API_KEY: optionalString,
+    EXTRACTION_MODEL: optionalString, // default gpt-5.6-luna
+    // Sent as the model's reasoning effort; "default" sends none (for models without reasoning, e.g. gpt-4.1-mini).
+    EXTRACTION_REASONING_EFFORT: z
+      .enum(['default', 'none', 'minimal', 'low', 'medium', 'high'])
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+    EXTRACTION_TIMEOUT_MS: optionalNumber(z.number().int().min(5_000).max(60_000)),
+    // Largest registration document (PDF, image or DOCX) a family may upload, in bytes. Default 5 MiB, at most 10 MiB.
+    DOCUMENT_MAX_BYTES: optionalNumber(
+      z
+        .number()
+        .int()
+        .min(1024 * 1024)
+        .max(10 * 1024 * 1024),
+    ),
     // Sign-up and sign-in limits per client address. A venue's Wi-Fi puts many families behind one address, so these are
     // generous by default; the per-account login limit (5 failures per 15 minutes) is what stops password guessing.
     RATE_LIMIT_REGISTER_PER_IP_HOUR: optionalNumber(z.number().int().min(1).max(10_000)),
@@ -174,6 +198,13 @@ const envSchema = z
           'is required when FACE_PROVIDER=node-native (face descriptors are stored encrypted)',
       });
     }
+    if (env.EXTRACTION_PROVIDER === 'openai' && !env.OPENAI_API_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OPENAI_API_KEY'],
+        message: 'is required when EXTRACTION_PROVIDER=openai',
+      });
+    }
     if (env.STORAGE_DRIVER === 'local' && env.NODE_ENV === 'production') {
       ctx.addIssue({
         code: 'custom',
@@ -232,6 +263,10 @@ const envSchema = z
     FACE_REVIEW_THRESHOLD: env.FACE_REVIEW_THRESHOLD ?? 0.75,
     FACE_AMBIGUITY_MARGIN: env.FACE_AMBIGUITY_MARGIN ?? 0.05,
     FACE_SCAN_TIMEOUT_MS: env.FACE_SCAN_TIMEOUT_MS ?? 5_000,
+    EXTRACTION_MODEL: env.EXTRACTION_MODEL ?? 'gpt-5.6-luna',
+    EXTRACTION_REASONING_EFFORT: env.EXTRACTION_REASONING_EFFORT ?? 'none',
+    EXTRACTION_TIMEOUT_MS: env.EXTRACTION_TIMEOUT_MS ?? 20_000,
+    DOCUMENT_MAX_BYTES: env.DOCUMENT_MAX_BYTES ?? 5 * 1024 * 1024,
   }));
 
 export type Env = z.infer<typeof envSchema>;

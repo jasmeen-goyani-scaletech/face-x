@@ -58,6 +58,7 @@ export function createFakeStorage() {
   };
 
   return {
+    provider,
     files: createFileStorage(provider),
     inspector,
     /** Server-side read of a whole object (used to hand a photo to the face provider). */
@@ -94,4 +95,8 @@ export const fileBytes = {
   webp: (size = 2048) => pad([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50], size),
   html: (size = 2048) => pad([...Buffer.from('<html><script>alert(1)</script>')], size),
   exe: (size = 2048) => pad([0x4d, 0x5a, 0x90, 0x00], size),
+  /** A ZIP local-file header, as every DOCX starts. */
+  docx: (size = 2048) => pad([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00], size),
+  /** A legacy Word .doc (OLE compound file). */
+  doc: (size = 2048) => pad([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], size),
 };

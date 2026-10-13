@@ -21,4 +21,15 @@ describe('sniffContentType', () => {
       expect(sniffContentType(bytes)).toBeNull();
     }
   });
+
+  it('recognizes DOCX (a ZIP) only when DOCX was declared, and never a legacy .doc', () => {
+    const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    expect(sniffContentType(fileBytes.docx(), DOCX)).toBe(DOCX);
+    expect(sniffContentType(fileBytes.docx())).toBeNull();
+    expect(sniffContentType(fileBytes.docx(), 'application/zip')).toBeNull();
+    expect(sniffContentType(fileBytes.doc(), DOCX)).toBeNull();
+    expect(sniffContentType(fileBytes.doc(), 'application/msword')).toBeNull();
+    // A declared type never overrides a real signature.
+    expect(sniffContentType(fileBytes.pdf(), DOCX)).toBe('application/pdf');
+  });
 });

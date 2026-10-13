@@ -297,7 +297,7 @@ export function createDocumentService({
               code: 'FILE_SIZE_MISMATCH',
               message: 'The uploaded file size does not match the request',
             }
-          : sniffContentType(inspected.header) !== doc.mimeType
+          : sniffContentType(inspected.header, doc.mimeType) !== doc.mimeType
             ? {
                 code: 'FILE_CONTENT_MISMATCH',
                 message: 'The file contents do not match the declared type',

@@ -29,8 +29,8 @@ export function missingRequiredDocuments(reg: PlayerRegistration): (typeof PLAYE
 
 export const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // photos are compressed before saving, so the limit can be generous
 export const MAX_PDF_BYTES = 1_500_000; // PDFs are kept as-is in the browser, so they must be small
-/** When files go to the API instead of browser storage, the API's own limit applies (10 MB for documents). */
-export const MAX_PDF_BYTES_UPLOADED = 10 * 1024 * 1024;
+/** When files go to the API instead of browser storage, the API's own limit applies (5 MB for documents by default). */
+export const MAX_PDF_BYTES_UPLOADED = 5 * 1024 * 1024;
 const MAX_IMAGE_EDGE = 1600;
 
 export function formatFileSize(bytes?: number): string {

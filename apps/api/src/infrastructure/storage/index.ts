@@ -1,6 +1,11 @@
 import { createHmac } from 'node:crypto';
 import type { Router } from 'express';
-import { createFileStorage, storageConfigFromEnv, type FileStorage } from './file-storage';
+import {
+  createFileStorage,
+  storageConfigFromEnv,
+  storageLimits,
+  type FileStorage,
+} from './file-storage';
 import { createLocalStorage } from './local-storage';
 import { createObjectAddress, type ObjectAddress } from './object-address';
 import { createS3ObjectInspector, type ObjectInspector } from './object-inspector';
@@ -12,7 +17,7 @@ export interface Storage {
   driver: 's3' | 'local';
   files: FileStorage;
   inspector: ObjectInspector;
-  /** Server-side reads (for the face provider). */
+  /** Server-side reads (for the face provider and document extraction). */
   reader: ObjectReader;
   /** Only the local driver has one: it serves the signed links itself. */
   localRouter?: Router;
@@ -36,6 +41,8 @@ interface StorageEnv {
   STORAGE_SECRET_KEY?: string;
   STORAGE_BUCKET?: string;
   STORAGE_FORCE_PATH_STYLE: boolean;
+  /** Largest registration document; default 5 MiB. */
+  DOCUMENT_MAX_BYTES?: number;
 }
 
 /**
@@ -45,6 +52,7 @@ interface StorageEnv {
  *   unset                 s3 if the STORAGE_* group is complete, otherwise null (uploads are switched off)
  */
 export function createStorageFromEnv(env: StorageEnv): Storage | null {
+  const limits = storageLimits(env.DOCUMENT_MAX_BYTES);
   const driver = env.STORAGE_DRIVER ?? (storageConfigFromEnv(env) ? 's3' : null);
 
   if (driver === 'local') {
@@ -58,7 +66,7 @@ export function createStorageFromEnv(env: StorageEnv): Storage | null {
     });
     return {
       driver: 'local',
-      files: createFileStorage(local.provider),
+      files: createFileStorage(local.provider, limits),
       inspector: local.inspector,
       reader: local.reader,
       localRouter: local.router,
@@ -71,7 +79,7 @@ export function createStorageFromEnv(env: StorageEnv): Storage | null {
     const address = createObjectAddress(config);
     return {
       driver: 's3',
-      files: createFileStorage(provider),
+      files: createFileStorage(provider, limits),
       inspector: createS3ObjectInspector(config),
       reader: createS3ObjectReader(config),
       address,

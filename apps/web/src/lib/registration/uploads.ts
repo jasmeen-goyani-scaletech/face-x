@@ -7,8 +7,9 @@ import { DOCUMENT_TYPE_BY_KEY, type PlayerDocumentKey } from './documentMap';
  * Size limits, mirroring the API (infrastructure/storage/file-storage.ts), so a file that would be refused is caught before
  * any bytes are sent. The API remains the authority.
  */
-const MAX_PDF_BYTES = 10 * 1024 * 1024;
-const MAX_DOCUMENT_IMAGE_BYTES = 3 * 1024 * 1024;
+// One limit for every document (the API's DOCUMENT_MAX_BYTES, 5 MB by default).
+const MAX_PDF_BYTES = 5 * 1024 * 1024;
+const MAX_DOCUMENT_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 /** Photos of documents are squeezed only until they are about this size. Smaller is not worth any loss of detail. */
 const TARGET_IMAGE_BYTES = 800 * 1024;
