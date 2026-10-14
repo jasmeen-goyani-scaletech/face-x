@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../src/infrastructure/database/database';
-import { as, childBody, createChild, createEvent, createOrg, createTeam } from './helpers/fixtures';
+import { as, childBody, createChild, createEvent, createOrg, createTeam, dropMigratedGuardianConsent } from './helpers/fixtures';
 import { recordableConsentCodes } from '../src/modules/consents/types';
 import { buildApi, createUser, openTestDb } from './helpers/test-app';
 
@@ -31,6 +31,7 @@ beforeAll(async () => {
   teamA = await createTeam(db, eventA);
   adminA = (await createUser(db, { roles: ['ADMIN'], organizationId: orgA })).id;
   adminB = (await createUser(db, { roles: ['ADMIN'], organizationId: orgB })).id;
+  await dropMigratedGuardianConsent(db);
   const { rows } = await db.query<{ id: string }>(
     `insert into public.consents (code, version, title, body, effective_at)
      values ('GUARDIAN_CONSENT', 1, 'Test guardian consent', $1, now() - interval '1 day') returning id`,

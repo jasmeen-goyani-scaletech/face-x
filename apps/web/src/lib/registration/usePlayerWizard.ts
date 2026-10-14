@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { assignRole, hasFamilyRole } from '@/lib/api/auth';
+import { assignRole, ensureSession, hasFamilyRole } from '@/lib/api/auth';
+import { getSessionUser } from '@/lib/api/session';
 import { listEvents, listTeams, resolveInvite } from '@/lib/api/catalog';
 import { getConsents, getCurrentConsents, recordConsent } from '@/lib/api/consents';
 import { listDocuments, submitDocument } from '@/lib/api/documents';
@@ -37,8 +38,6 @@ import { DOCUMENT_KEYS, DOCUMENT_TYPE_BY_KEY, hasRejectedDocument, toUploadedFil
 import { uploadPlayerDocument } from './uploads';
 
 const GUARDIAN_CONSENT = 'GUARDIAN_CONSENT';
-/** Optional: lets the player's approved photo be enrolled for face-scan check-in. Never needed to register. */
-const BIOMETRIC_CONSENT = 'BIOMETRIC_CONSENT';
 /** Statuses a family can still be working on from the wizard (payment may be outstanding). */
 const IN_PROGRESS: ApiRegistrationStatus[] = ['DRAFT', 'SUBMITTED', 'PAYMENT_PENDING'];
 
@@ -188,13 +187,6 @@ export interface PlayerWizard {
   locked: boolean;
   documents: Record<PlayerDocumentKey, UploadedFile>;
   consentWording: ApiConsentVersion | null;
-  /** The face-scan consent wording, once the league has published it (null: the option is not offered). */
-  faceConsentWording: ApiConsentVersion | null;
-  /** The current face-scan consent was already accepted for this registration. */
-  faceConsentRecorded: boolean;
-  /** The family ticked the box; it is recorded when the guardian step is saved. */
-  faceConsentChecked: boolean;
-  setFaceConsentChecked: (checked: boolean) => void;
   consents: ApiConsentStatus | null;
   payment: ApiPaymentSummary | null;
   notice: WizardNotice | null;
@@ -228,8 +220,6 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   const [apiDocuments, setApiDocuments] = useState<ApiDocument[]>([]);
   const [previews, setPreviews] = useState<Partial<Record<PlayerDocumentKey, string>>>({});
   const [consentWording, setConsentWording] = useState<ApiConsentVersion | null>(null);
-  const [faceConsentWording, setFaceConsentWording] = useState<ApiConsentVersion | null>(null);
-  const [faceConsentChecked, setFaceConsentChecked] = useState(false);
   const [consents, setConsents] = useState<ApiConsentStatus | null>(null);
   const [payment, setPayment] = useState<ApiPaymentSummary | null>(null);
   const [notice, setNotice] = useState<WizardNotice | null>(null);
@@ -248,10 +238,6 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   previewsRef.current = previews;
   const consentWordingRef = useRef(consentWording);
   consentWordingRef.current = consentWording;
-  const faceWordingRef = useRef(faceConsentWording);
-  faceWordingRef.current = faceConsentWording;
-  const faceCheckedRef = useRef(faceConsentChecked);
-  faceCheckedRef.current = faceConsentChecked;
 
   const age = calcAge(reg.basic.dob);
   const isMinor = age === null || age < 18;
@@ -292,13 +278,31 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     let cancelled = false;
     setPhase('loading');
     setLoadError(null);
+    // `?new=1` is a fresh start: nothing from the previous registration (in memory or in this tab's saved draft) may carry over,
+    // and a submitted registration left in state would keep every field locked.
+    const startingFresh = options.startNew && !options.registrationId;
+    if (startingFresh) {
+      writeUnsavedDraft(null);
+      Object.values(previewsRef.current).forEach((u) => u && URL.revokeObjectURL(u));
+      setReg(freshPlayerRegistration(null));
+      setStep('basic');
+      setEventId('');
+      setTeams([]);
+      setRegistration(null);
+      setApiDocuments([]);
+      setPreviews({});
+      setConsents(null);
+      setPayment(null);
+      setNotice(null);
+      setSaveError(null);
+      setApiFieldErrors({});
+    }
     (async () => {
       try {
         const [eventList, summaries, wording] = await Promise.all([listEvents(), hasFamilyRole(user) ? listRegistrations() : Promise.resolve([]), getCurrentConsents()]);
         if (cancelled) return;
         setEvents(eventList);
         setConsentWording(wording.find((c) => c.code === GUARDIAN_CONSENT) ?? null);
-        setFaceConsentWording(wording.find((c) => c.code === BIOMETRIC_CONSENT) ?? null);
 
         let inviteState: InviteState = { status: 'none' };
         if (options.inviteCode) {
@@ -348,7 +352,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
             const invited = inviteState.invite;
             setReg((prev) => ({ ...prev, invite: invited, teamId: invited.teamId }));
           }
-          const draft = user ? readUnsavedDraft(user.id) : null;
+          const draft = user && !startingFresh ? readUnsavedDraft(user.id) : null;
           if (draft) {
             const eventStillOpen = eventList.some((e) => e.id === draft.eventId);
             if (inviteState.status !== 'valid' && eventStillOpen) setEventId(draft.eventId);
@@ -372,9 +376,10 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     return () => {
       cancelled = true;
     };
-    // The options come from the URL and don't change during a visit; reloadKey retries after a failure.
+    // The options come from the URL; reloadKey retries after a failure, and moving to or from `?new=1` (a same-page navigation
+    // that keeps this hook mounted) starts the load again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey]);
+  }, [reloadKey, options.startNew, options.registrationId]);
 
   // Keep the unsent form across a refresh until the server has the registration.
   useEffect(() => {
@@ -447,12 +452,21 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     }
   }, []);
 
-  const ensureRole = useCallback(
-    async (role: 'PARENT' | 'PLAYER') => {
-      if (!user?.roles.includes(role)) await assignRole(role);
-    },
-    [user]
-  );
+  /**
+   * The first save of a visitor with no session: the contact email the form collected (the parent's for a minor, the
+   * player's own otherwise) starts a guest session, so the rest of the flow is an ordinary signed-in one.
+   */
+  const ensureRole = useCallback(async (role: 'PARENT' | 'PLAYER') => {
+    const form = regRef.current;
+    const minor = role === 'PARENT';
+    await ensureSession({
+      email: minor ? form.emergency.guardianEmail : form.basic.email,
+      fullName: minor ? form.emergency.guardianName : `${form.basic.firstName} ${form.basic.lastName}`,
+      role
+    });
+    // Read the live session, not the render's `user`: it may have only just been created.
+    if (!getSessionUser()?.roles.includes(role)) await assignRole(role);
+  }, []);
 
   /** Reuses a player this account already created with the same name and birth date (an interrupted earlier attempt), else creates one. */
   const findOrCreatePlayer = useCallback(async (): Promise<ApiPlayer> => {
@@ -590,24 +604,6 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
         await hydrate(registrationId);
       }
 
-      // The optional face-scan consent: only when the box was ticked and the current wording is not already accepted. Declining is
-      // simply not recording it; the player is then checked in by hand. It is recorded under the same signature as the consent above.
-      const faceShown = faceWordingRef.current;
-      if (faceShown && faceCheckedRef.current) {
-        const latest = (await hydrate(registrationId)).consents;
-        const accepted = latest.records.some((r) => r.code === BIOMETRIC_CONSENT && r.currentVersion);
-        if (!accepted) {
-          const signedName = regRef.current.consent.signedName.trim();
-          if (signedName.length < 2) throw new Error('Type your full name to sign the face-scan consent.');
-          try {
-            await recordConsent(registrationId, { consentId: faceShown.id, signedName, accepted: true });
-          } catch (e) {
-            // Accepted in another tab a moment ago: nothing is lost.
-            if (!hasCode(e, 'CONSENT_ALREADY_RECORDED')) throw e;
-          }
-          await hydrate(registrationId);
-        }
-      }
       goTo('documents');
     });
   }, [run, createDraft, hydrate, goTo]);
@@ -640,6 +636,18 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
       return { ...prev, [key]: url };
     });
     setApiDocuments((prev) => [...prev.filter((d) => d.documentType !== document.documentType), document]);
+    // The photo is saved either way; if it can't become a face for check-in, say how to fix it.
+    if (document.faceEnrollment?.outcome === 'FAILED' && document.faceEnrollment.problem) {
+      const why: Record<string, string> = {
+        NO_FACE_DETECTED: 'We couldn’t find a face in that photo. Face the camera in good light and take it again.',
+        MULTIPLE_FACES: 'More than one face is in that photo. Please upload a photo of the player alone.',
+        LOW_QUALITY: 'The face in that photo is too small or unclear. Move closer, use good light and take it again.',
+        IMAGE_REJECTED: 'That photo can’t be used for face check-in. Please take a clearer one.'
+      };
+      setNotice({ level: 'warning', title: 'Please retake the photo', text: why[document.faceEnrollment.problem] ?? why.IMAGE_REJECTED });
+    } else if (document.documentType === 'PROFILE_PHOTO') {
+      setNotice(null);
+    }
   }, []);
 
   const finishDocuments = useCallback(async () => {
@@ -693,10 +701,6 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     locked,
     documents,
     consentWording,
-    faceConsentWording,
-    faceConsentRecorded: consents?.records.some((r) => r.code === BIOMETRIC_CONSENT && r.currentVersion) ?? false,
-    faceConsentChecked,
-    setFaceConsentChecked,
     consents,
     payment,
     notice,

@@ -25,6 +25,7 @@ export type EligibilityReason =
   | 'EVENT_ACCESS_DISABLED'
   | 'PAYMENT_NOT_COMPLETED'
   | 'DOCUMENTS_NOT_APPROVED'
+  | 'PHOTO_REJECTED'
   | 'CONSENT_NOT_ACCEPTED'
   | 'FACE_PROFILE_NOT_ACTIVE';
 
@@ -36,6 +37,8 @@ export interface EligibilityFacts {
   accessDisabled: boolean;
   paymentSatisfied: boolean;
   documentsApproved: boolean;
+  /** An admin rejected the profile photo (the face made from it was removed): flagged at the door until it is replaced. */
+  photoRejected?: boolean;
   consentSatisfied: boolean;
   /** Whether the face profile the scan matched is still ACTIVE. Only consulted for FACE. */
   faceProfileActive: boolean;
@@ -49,6 +52,7 @@ export function reasonsFor(facts: EligibilityFacts, method: CheckInMethod): Elig
   if (facts.accessDisabled) reasons.push('EVENT_ACCESS_DISABLED');
   if (!facts.paymentSatisfied) reasons.push('PAYMENT_NOT_COMPLETED');
   if (!facts.documentsApproved) reasons.push('DOCUMENTS_NOT_APPROVED');
+  if (facts.photoRejected) reasons.push('PHOTO_REJECTED');
   if (!facts.consentSatisfied) reasons.push('CONSENT_NOT_ACCEPTED');
   // A player without a face profile can always be checked in manually.
   if (method === 'FACE' && !facts.faceProfileActive) reasons.push('FACE_PROFILE_NOT_ACTIVE');
@@ -119,6 +123,12 @@ export async function checkEligibility(
     faceProfileActive = profile.length > 0;
   }
 
+  const { rows: rejectedPhoto } = await q.query(
+    `select 1 from public.documents
+      where registration_id = $1 and document_type = 'PROFILE_PHOTO' and status = 'REJECTED' limit 1`,
+    [row.id],
+  );
+
   const reasons = reasonsFor(
     {
       eventOpen: row.event_status === 'PUBLISHED',
@@ -126,6 +136,7 @@ export async function checkEligibility(
       accessDisabled: row.event_access_disabled,
       paymentSatisfied: report.payment.satisfied,
       documentsApproved: report.documents.allRequiredApproved,
+      photoRejected: rejectedPhoto.length > 0,
       consentSatisfied: report.consent.satisfied,
       faceProfileActive,
     },

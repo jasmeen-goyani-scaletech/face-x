@@ -61,6 +61,7 @@ const REFUSAL_REASONS: Record<string, string> = {
   EVENT_ACCESS_DISABLED: 'Event-day access was switched off for this person.',
   PAYMENT_NOT_COMPLETED: 'Payment is not complete.',
   DOCUMENTS_NOT_APPROVED: 'Documents are not all approved.',
+  PHOTO_REJECTED: 'FLAGGED: staff rejected this person’s profile photo. They must upload a new photo before checking in.',
   CONSENT_NOT_ACCEPTED: 'The consent has not been accepted.',
   FACE_PROFILE_NOT_ACTIVE: 'There is no active face profile.'
 };

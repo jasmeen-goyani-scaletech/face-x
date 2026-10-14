@@ -1,7 +1,7 @@
 import type { CookieOptions, RequestHandler } from 'express';
 import { parse } from 'cookie';
 import { AppError } from '../../shared/errors/app-error';
-import { loginBodySchema, registerBodySchema } from './schema';
+import { guestBodySchema, loginBodySchema, registerBodySchema } from './schema';
 import type { AuthService } from './service';
 import type { Session } from './types';
 
@@ -16,6 +16,7 @@ export interface CookieConfig {
 
 export interface AuthController {
   register: RequestHandler;
+  guest: RequestHandler;
   login: RequestHandler;
   refresh: RequestHandler;
   logout: RequestHandler;
@@ -57,6 +58,12 @@ export function createAuthController(service: AuthService, cookies: CookieConfig
       const user = await service.register(body);
       res.set('Cache-Control', 'no-store');
       res.status(201).json({ success: true, data: user });
+    },
+
+    guest: async (req, res, next) => {
+      res.locals.session = await service.startGuestSession(guestBodySchema.parse(req.body));
+      res.status(201);
+      sendSession(req, res, next);
     },
 
     login: async (req, res, next) => {

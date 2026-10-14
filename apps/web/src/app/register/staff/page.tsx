@@ -273,7 +273,7 @@ export default function StaffRegisterPage() {
       <RegistrationHeader role="STAFF" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         <Suspense fallback={null}>
-          <RequireAuth>
+          <RequireAuth allowGuest>
             <StaffWizard />
           </RequireAuth>
         </Suspense>

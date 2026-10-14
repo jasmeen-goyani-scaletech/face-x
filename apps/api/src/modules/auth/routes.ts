@@ -10,6 +10,8 @@ export interface AuthRouteMiddleware {
 export function createAuthRouter(controller: AuthController, mw: AuthRouteMiddleware): Router {
   const router = Router();
   router.post('/register', ...mw.limiters.register, controller.register);
+  // Public: a registration form starts a passwordless guest session from the contact email it collects.
+  router.post('/guest', ...mw.limiters.register, controller.guest);
   router.post('/login', ...mw.limiters.login, controller.login);
   // Cookie-driven endpoints: Origin check against CSRF.
   router.post('/refresh', mw.trustedOrigin, ...mw.limiters.refresh, controller.refresh);

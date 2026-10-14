@@ -42,15 +42,18 @@ afterAll(() => db.close());
 
 const V1 = '/api/v1';
 
-describe('authentication', () => {
-  it.each([
-    ['get', `${V1}/events`],
-    ['get', `${V1}/events/${randomUUID()}`],
-    ['get', `${V1}/events/${randomUUID()}/teams`],
-    ['post', `${V1}/teams/resolve-invite`],
-  ] as const)('%s %s needs a signed-in user', async (method, path) => {
-    const res = await request(app)[method](path);
-    expect(res.status).toBe(401);
+describe('public access', () => {
+  // A registration form loads these before its visitor has a session.
+  it('lists published events and a team list without a session', async () => {
+    expect((await request(app).get(`${V1}/events`)).status).toBe(200);
+    expect((await request(app).get(`${V1}/events/${published}/teams`)).status).toBe(200);
+    expect((await request(app).get(`${V1}/events/${published}`)).status).toBe(200);
+  });
+
+  it('resolves an invite code without a session, and still rejects a malformed body', async () => {
+    const ok = await request(app).post(`${V1}/teams/resolve-invite`).send({ inviteCode, teamId: team });
+    expect(ok.status).toBe(200);
+    expect((await request(app).post(`${V1}/teams/resolve-invite`)).status).toBe(422);
   });
 });
 
@@ -147,7 +150,7 @@ describe('GET /events with paging', () => {
     for (const q of ['page=0', 'pageSize=0', 'pageSize=101', 'page=abc']) {
       expect((await as(app, viewer).get(`${V1}/events?${q}`)).status, q).toBe(422);
     }
-    expect((await request(app).get(`${V1}/events?page=1`)).status).toBe(401);
+    expect((await request(app).get(`${V1}/events?page=1`)).status).toBe(200);
   });
 });
 

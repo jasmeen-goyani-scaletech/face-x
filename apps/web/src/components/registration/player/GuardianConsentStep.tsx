@@ -27,11 +27,8 @@ export default function GuardianConsentStep({
   wording,
   guardianSaved,
   consentRecorded,
-  faceWording,
-  faceRecorded,
-  faceChecked,
-  onFaceChange,
   locked,
+  guest,
   saving,
   saveError,
   apiFieldErrors
@@ -47,13 +44,10 @@ export default function GuardianConsentStep({
   guardianSaved: boolean;
   /** The current wording was already accepted for this registration. */
   consentRecorded: boolean;
-  /** The optional face-scan consent wording, once published. Null: the option is not shown. */
-  faceWording: ApiConsentVersion | null;
-  faceRecorded: boolean;
-  faceChecked: boolean;
-  onFaceChange: (checked: boolean) => void;
   /** Submitted: nothing here can be changed any more. */
   locked: boolean;
+  /** No account yet: the parent's email is typed here and starts the guest session on save. */
+  guest: boolean;
   saving: boolean;
   saveError: string | null;
   apiFieldErrors: Record<string, string>;
@@ -146,11 +140,11 @@ export default function GuardianConsentStep({
                 type="email"
                 autoComplete="email"
                 value={g.guardianEmail}
-                readOnly
-                hint="This is the email you signed in with. Updates are sent here."
+                readOnly={!guest}
+                hint={guest ? undefined : 'This is the email you signed in with.'}
                 error={error('guardianEmail')}
                 onBlur={blur('guardianEmail')}
-                onChange={() => undefined}
+                onChange={(e) => setGuardian({ guardianEmail: e.target.value })}
               />
             </div>
           </>
@@ -211,40 +205,6 @@ export default function GuardianConsentStep({
               onBlur={blur('signedName')}
               onChange={(e) => setConsent({ signedName: e.target.value })}
             />
-          </div>
-        )}
-        {faceWording && (
-          <div className="border-t border-line pt-5 mt-5">
-            <h3 className="text-[12px] text-ink-faint tracking-wide mb-2">Face-scan check-in (optional)</h3>
-            {faceRecorded && (
-              <Alert level="success" title="Face-scan consent recorded">
-                The approved photo can be used for face-scan check-in at events.
-              </Alert>
-            )}
-            <div className="rounded-m border border-line-strong bg-surface-2 px-4 py-3.5 mb-3">
-              <label className="flex gap-2.5 items-start text-[13.5px] text-ink-soft">
-                <Checkbox
-                  id="faceConsent"
-                  className="mt-0.5"
-                  checked={faceRecorded || faceChecked}
-                  disabled={faceRecorded}
-                  onChange={(e) => onFaceChange(e.target.checked)}
-                />
-                <span>{faceWording.body}</span>
-              </label>
-            </div>
-            <p className="m-0 mb-3 text-[13px] text-ink-faint">
-              Optional. Without it, your player is checked in at the door by hand instead of by face scan; registration is not affected.
-            </p>
-            {!isMinor && faceChecked && !faceRecorded && (
-              <TextField
-                id="faceSignedName"
-                label="Type your full name to sign"
-                autoComplete="off"
-                value={c.signedName}
-                onChange={(e) => setConsent({ signedName: e.target.value })}
-              />
-            )}
           </div>
         )}
       </fieldset>

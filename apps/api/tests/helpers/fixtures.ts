@@ -92,3 +92,16 @@ export async function createChild(
     throw new Error(`createChild failed: ${res.status} ${JSON.stringify(res.body)}`);
   return res.body.data.id as string;
 }
+
+/**
+ * Removes the real guardian wording (GUARDIAN_CONSENT v2, published by a migration) from a test's own throw-away database.
+ * Consent tests publish their own versions starting at 1 and assert on exactly which one is current, which the migrated
+ * wording would otherwise shadow. The immutability trigger is switched off for just this delete, inside one transaction.
+ */
+export async function dropMigratedGuardianConsent(db: Database): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.query('alter table public.consents disable trigger consents_freeze_content');
+    await tx.query("delete from public.consents where code = 'GUARDIAN_CONSENT' and version = 2");
+    await tx.query('alter table public.consents enable trigger consents_freeze_content');
+  });
+}

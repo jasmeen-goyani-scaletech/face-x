@@ -600,3 +600,33 @@ describe('sensitive data protection', () => {
     });
   });
 });
+
+describe('POST /auth/guest (public registration form)', () => {
+  it('creates a passwordless account with the chosen role and returns a session without any prior login', async () => {
+    const email = uniqueEmail('Guest');
+    const res = await request(app).post('/api/v1/auth/guest').send({ email, role: 'COACH' });
+    expect(res.status).toBe(201);
+    expect(res.body.data.accessToken).toEqual(expect.any(String));
+    expect(res.body.data.user.roles).toEqual(['COACH']);
+    expect(refreshCookieOf(res)).toBeTruthy();
+    const me = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${res.body.data.accessToken}`);
+    expect(me.status).toBe(200);
+  });
+
+  it('leaves no password behind: the account cannot be signed into with one', async () => {
+    const email = uniqueEmail('GuestNoPw');
+    expect((await request(app).post('/api/v1/auth/guest').send({ email, role: 'PARENT' })).status).toBe(201);
+    const login = await request(app).post('/api/v1/auth/login').send({ email, password: STRONG_PASSWORD });
+    expect(login.status).toBe(401);
+  });
+
+  it('refuses ADMIN and an already-registered email', async () => {
+    const email = uniqueEmail('GuestDup');
+    const body = { email, role: 'PARENT' };
+    expect((await request(app).post('/api/v1/auth/guest').send({ ...body, role: 'ADMIN' })).status).toBe(422);
+    expect((await request(app).post('/api/v1/auth/guest').send(body)).status).toBe(201);
+    expect((await request(app).post('/api/v1/auth/guest').send(body)).status).toBe(409);
+  });
+});

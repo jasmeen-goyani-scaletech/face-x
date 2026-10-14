@@ -15,6 +15,7 @@ import {
   type DocumentDto,
   type DocumentListDto,
   type DocumentType,
+  type FaceEnrollmentResult,
   type UploadInstructions,
 } from './types';
 
@@ -75,6 +76,22 @@ export interface PhotoApprovedHook {
     actorUserId: string;
     meta: RequestMeta;
   }): Promise<unknown>;
+  /** Told when a profile photo has just been uploaded. Enrolls the face at once; the answer reaches the family. Must not throw. */
+  afterPhotoUploaded?(input: {
+    playerId: string | null;
+    staffProfileId: string | null;
+    documentId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<FaceEnrollmentResult>;
+  /** Told when an admin rejects a profile photo, after the rejection has committed. Revokes the face made from it. Must not throw. */
+  afterPhotoRejected?(input: {
+    playerId: string | null;
+    staffProfileId: string | null;
+    documentId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<unknown>;
 }
 
 /** Photos go to their own area (own size and type limits); everything else is a document. */
@@ -123,7 +140,7 @@ export function createDocumentService({
   storage,
   readiness,
   notifications,
-  faceEnrollment,
+  faceEnrollment: faceEnrollment_,
 }: DocumentServiceDeps): DocumentService {
   const requireStorage = () => {
     if (!storage) throw storageNotConfigured();
@@ -328,7 +345,21 @@ export function createDocumentService({
           meta,
         });
       });
-      return dtoOrThrow(documentId);
+      const uploaded = await dtoOrThrow(documentId);
+      // A profile photo becomes the person's face the moment it is uploaded; the upload stands whatever happens here.
+      if (doc.documentType === 'PROFILE_PHOTO' && (access.playerId || access.staffProfileId)) {
+        const faceEnrollment = await faceEnrollment_
+          ?.afterPhotoUploaded?.({
+            playerId: access.playerId,
+            staffProfileId: access.staffProfileId,
+            documentId,
+            actorUserId: ctx.userId,
+            meta,
+          })
+          .catch(() => undefined);
+        if (faceEnrollment) return { ...uploaded, faceEnrollment };
+      }
+      return uploaded;
     },
 
     async submit(ctx, documentId, meta) {
@@ -431,8 +462,24 @@ export function createDocumentService({
         reviewedType === 'PROFILE_PHOTO' &&
         (access.playerId || access.staffProfileId)
       ) {
-        await faceEnrollment
+        await faceEnrollment_
           ?.afterPhotoApproved({
+            playerId: access.playerId,
+            staffProfileId: access.staffProfileId,
+            documentId,
+            actorUserId: ctx.userId,
+            meta,
+          })
+          .catch(() => undefined);
+      }
+      // A rejected photo can no longer stand for the person: their face profile is revoked (and removed at the face service).
+      if (
+        body.decision === 'REJECTED' &&
+        reviewedType === 'PROFILE_PHOTO' &&
+        (access.playerId || access.staffProfileId)
+      ) {
+        await faceEnrollment_
+          ?.afterPhotoRejected?.({
             playerId: access.playerId,
             staffProfileId: access.staffProfileId,
             documentId,

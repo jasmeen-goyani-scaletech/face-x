@@ -3,7 +3,7 @@ import { Client } from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, type Database } from '../src/infrastructure/database/database';
 import { migrateUp } from '../src/infrastructure/database/migrate';
-import { as } from './helpers/fixtures';
+import { as, dropMigratedGuardianConsent } from './helpers/fixtures';
 import { buildApi, createUser } from './helpers/test-app';
 
 /**
@@ -39,6 +39,7 @@ beforeAll(async () => {
   await migrateUp(url);
   db = createDatabase({ url });
   app = buildApi(db);
+  await dropMigratedGuardianConsent(db);
   viewer = (await createUser(db)).id; // no role: reference data for any signed-in account
 });
 
@@ -65,8 +66,8 @@ const everything = async () =>
 const current = async () => (await everything()).filter((c) => c.code !== 'BIOMETRIC_CONSENT');
 
 describe('GET /consents/current', () => {
-  it('needs a signed-in user', async () => {
-    expect((await request(app).get('/api/v1/consents/current')).status).toBe(401);
+  it('is readable without a session (the form shows it before one exists)', async () => {
+    expect((await request(app).get('/api/v1/consents/current')).status).toBe(200);
   });
 
   it('is an empty list while nothing is published (the form must not invent wording)', async () => {

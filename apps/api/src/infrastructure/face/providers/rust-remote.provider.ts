@@ -65,6 +65,7 @@ export interface RustRemoteDeps {
 
 /** Identifies this API to the service in its audit log; not a person and not a device. */
 const KIOSK_ID = 'facex-api';
+const RETRY_DELAY_MS = 250;
 
 /** The service decodes JPEG only. Anything else is converted; a JPEG is sent untouched (the service applies EXIF orientation). */
 async function toJpegBase64(image: FaceImage): Promise<string> {
@@ -121,23 +122,75 @@ export function createRustRemoteProvider({
       }
       throw new FaceProviderError('UNAVAILABLE', 'the face service could not be reached');
     }
-    const json: unknown = await res.json().catch(() => null);
+    // Some refusals (e.g. a body the service cannot deserialize) are plain text, not JSON: keep the text as a `message`.
+    const text = await res.text().catch(() => '');
+    let json: unknown = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = text ? { message: text.slice(0, 500) } : null;
+    }
     return { status: res.status, json };
   }
 
-  function unexpected(status: number): FaceProviderError {
+  let sendEventId = true;
+  let sendRole = true;
+  const unknownField = (json: unknown, field: string) =>
+    isRecord(json) &&
+    typeof json.message === 'string' &&
+    json.message.includes(`unknown field \`${field}\``);
+
+  /** The service's refusal reduced to a fixed tag, so the log says why without ever carrying its text. */
+  function refusalReason(json: unknown): string {
+    const text = isRecord(json) && typeof json.message === 'string' ? json.message.toLowerCase() : '';
+    if (text.includes('decode')) return 'undecodable image';
+    if (text.includes('large') || text.includes('size') || text.includes('dimension')) return 'image size';
+    if (text.includes('base64')) return 'bad base64';
+    return text ? 'other' : '';
+  }
+
+  function unexpected(status: number, json?: unknown): FaceProviderError {
+    const reason = refusalReason(json);
     // 413: the photo is over the service's limits (an input problem); everything else, including its 503 "busy" shed, is an outage.
     if (status === 413) return new FaceProviderError('IMAGE_REJECTED', 'photo too large');
+    // 400/415/422: the service refused this request itself (e.g. "could not decode image"). That is the photo, not an outage,
+    // and must not surface as a 503 "Face recognition is unavailable".
+    if (status === 400 || status === 415 || status === 422) {
+      return new FaceProviderError(
+        'IMAGE_REJECTED',
+        `the face service rejected the request (${status}${reason ? `: ${reason}` : ''})`,
+      );
+    }
     return new FaceProviderError('UNAVAILABLE', `the face service answered ${status}`);
   }
 
   /** The service's errors are `{ isError: true, ... }`, sometimes with a 200. */
   const failed = (json: unknown) => isRecord(json) && json.isError === true;
 
+  /** A scan only reads the gallery, so a transient failure (connection error, 502/503/504) is retried once, briefly. */
+  async function callScan(body: Record<string, unknown>, signal?: AbortSignal) {
+    const transient = (status: number) => status === 502 || status === 503 || status === 504;
+    // An older face service refuses a body with a field it does not know (`eventId`, added with scan-frame filing) as a 422.
+    // Learn that once, then send the plain body: the scan works, the service just does not file the frame under the event.
+    if (!sendEventId) delete body.eventId;
+    try {
+      let first = await call('POST', '/kiosk/scan', body, signal);
+      if (first.status === 422 && 'eventId' in body && unknownField(first.json, 'eventId')) {
+        sendEventId = false;
+        delete body.eventId;
+        first = await call('POST', '/kiosk/scan', body, signal);
+      }
+      if (!transient(first.status)) return first;
+    } catch (err) {
+      if (!(err instanceof FaceProviderError) || err.code !== 'UNAVAILABLE') throw err;
+    }
+    if (signal?.aborted) throw new FaceProviderError('TIMEOUT');
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    return call('POST', '/kiosk/scan', body, signal);
+  }
+
   async function scan(image: FaceImage, signal?: AbortSignal, eventId?: string) {
-    const { status, json } = await call(
-      'POST',
-      '/kiosk/scan',
+    const { status, json } = await callScan(
       {
         avatar: await toJpegBase64(image),
         kioskId: KIOSK_ID,
@@ -145,7 +198,7 @@ export function createRustRemoteProvider({
       },
       signal,
     );
-    if (status < 200 || status >= 300) throw unexpected(status);
+    if (status < 200 || status >= 300) throw unexpected(status, json);
     if (!isRecord(json) || failed(json)) {
       throw new FaceProviderError('UNAVAILABLE', 'the face service sent an unusable answer');
     }
@@ -169,21 +222,23 @@ export function createRustRemoteProvider({
     name: RUST_REMOTE_PROVIDER,
 
     async enroll(request: EnrollRequest): Promise<EnrollResult> {
-      const { status, json } = await call(
-        'POST',
-        '/auth/signup',
-        {
-          // Our player id stands in for the name: the service is never given personal data.
-          name: request.subjectId,
-          avatar: await toJpegBase64(request.image),
-          isNormalMember: true,
-          isVipMember: false,
-          allowDuplicate: false,
-          ...(request.role ? { role: request.role } : {}),
-        },
-        request.signal,
-      );
-      if (status < 200 || status >= 300) throw unexpected(status);
+      const body: Record<string, unknown> = {
+        // Our player id stands in for the name: the service is never given personal data.
+        name: request.subjectId,
+        avatar: await toJpegBase64(request.image),
+        isNormalMember: true,
+        isVipMember: false,
+        allowDuplicate: false,
+        ...(request.role && sendRole ? { role: request.role } : {}),
+      };
+      let { status, json } = await call('POST', '/auth/signup', body, request.signal);
+      // An older service refuses the unknown `role` field with a 422 before creating anything, so asking again without it is safe.
+      if (status === 422 && 'role' in body && unknownField(json, 'role')) {
+        sendRole = false;
+        delete body.role;
+        ({ status, json } = await call('POST', '/auth/signup', body, request.signal));
+      }
+      if (status < 200 || status >= 300) throw unexpected(status, json);
       if (!isRecord(json) || failed(json)) {
         throw new FaceProviderError('UNAVAILABLE', 'the face service sent an unusable answer');
       }
@@ -216,7 +271,7 @@ export function createRustRemoteProvider({
       if (status === 401 || status === 403) {
         throw new FaceProviderError('UNAVAILABLE', 'the face service refused the admin token');
       }
-      throw unexpected(status);
+      throw unexpected(status, json);
     },
 
     async identify(request: IdentifyRequest): Promise<IdentifyResult> {

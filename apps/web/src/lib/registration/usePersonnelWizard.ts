@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { assignRole } from '@/lib/api/auth';
+import { assignRole, ensureSession } from '@/lib/api/auth';
+import { getSessionUser } from '@/lib/api/session';
 import { listEvents, resolveInvite } from '@/lib/api/catalog';
 import { getConsents, getCurrentConsents, recordConsent } from '@/lib/api/consents';
 import { listDocuments, submitDocument } from '@/lib/api/documents';
@@ -203,7 +204,7 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
 
   // ---------------------------------------------------------------- bootstrap
   useEffect(() => {
-    if (!hydrated || !user) return;
+    if (!hydrated) return;
     let cancelled = false;
     setPhase('loading');
     setLoadError(null);
@@ -215,10 +216,11 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
             if (hasCode(e, 'INSUFFICIENT_ROLE')) return [];
             throw e;
           });
+        // A visitor with no session yet has nothing saved, and the protected lists are not even asked for.
         const [eventList, profiles, summaries, current] = await Promise.all([
           listEvents(),
-          orNone(listStaffProfiles()),
-          orNone(listPersonnelRegistrations(config.kind)),
+          user ? orNone(listStaffProfiles()) : Promise.resolve([] as ApiStaffProfile[]),
+          user ? orNone(listPersonnelRegistrations(config.kind)) : Promise.resolve([] as Awaited<ReturnType<typeof listPersonnelRegistrations>>),
           getCurrentConsents()
         ]);
         if (cancelled) return;
@@ -262,7 +264,7 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
           setReg((prev) => {
             const base = prev.status === 'submitted' ? config.fresh(invited) : { ...prev, status: 'not_started' as const, invite: invited ?? prev.invite };
             const withProfile = mine ? config.fromProfile(base as R, mine) : (base as R);
-            return withProfile.basic.email ? withProfile : ({ ...withProfile, basic: { ...withProfile.basic, email: user.email } } as R);
+            return withProfile.basic.email || !user ? withProfile : ({ ...withProfile, basic: { ...withProfile.basic, email: user.email } } as R);
           });
           setStep('basic');
         }
@@ -276,9 +278,10 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
     return () => {
       cancelled = true;
     };
-    // The options come from the URL and don't change during a visit; reloadKey retries after a failure.
+    // The options come from the URL and don't change during a visit; reloadKey retries after a failure. Not `user`: a
+    // guest session starting on the first save must not reload the wizard.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, user?.id, reloadKey]);
+  }, [hydrated, reloadKey]);
 
   const goTo = useCallback((next: PersonnelStep) => {
     setStep(next);
@@ -320,9 +323,13 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
         const chosenEvent = eventIdRef.current;
         if (!current && !chosenEvent) throw new Error('Choose the event you are registering for.');
 
-        if (!user?.roles.includes(config.kind)) await assignRole(config.kind);
-
         const b = form.basic;
+        // No session yet: the email typed on this form starts a guest session before anything is saved.
+        await ensureSession({ email: b.email, fullName: `${b.firstName} ${b.lastName}`, role: config.kind });
+        // The live session, not the render's `user`, which may have only just been created.
+        if (!getSessionUser()?.roles.includes(config.kind)) await assignRole(config.kind);
+
+
         const staffRole = config.staffRole(form);
         const fields = { firstName: b.firstName.trim(), lastName: b.lastName.trim(), email: b.email.trim(), phone: b.phone.trim() || undefined };
         let person = profileRef.current;
@@ -361,7 +368,7 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
         goTo('certificates');
         return true;
       }),
-    [run, config, user, hydrate, goTo, options.inviteCode, options.teamId]
+    [run, config, hydrate, goTo, options.inviteCode, options.teamId]
   );
 
   // ---------------------------------------------------------------- step 2: photo & documents

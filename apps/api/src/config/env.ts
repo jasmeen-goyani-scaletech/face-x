@@ -107,6 +107,17 @@ const envSchema = z
     VAPID_PRIVATE_KEY: optionalString,
     VAPID_SUBJECT: optionalString, // mailto:you@example.org or an https URL
     FACE_PROVIDER_API_KEY: optionalString,
+    // true (default): a profile photo is enrolled with the face provider as soon as it is uploaded, before an admin reviews it and
+    // without the face-scan consent. false: enrollment waits for admin approval and the consent (the stricter, earlier behaviour).
+    FACE_ENROLL_ON_UPLOAD: z
+      .enum(['true', 'false', ''])
+      .optional()
+      .transform((v) => v !== 'false'),
+    // DEVELOPMENT ONLY: when the provider cannot answer a scan, match the newest enrolled person so the flow can be tested.
+    FACE_SCAN_MOCK: z
+      .enum(['true', 'false', ''])
+      .optional()
+      .transform((v) => v === 'true'),
     // The "rust-remote" provider: base URL of the face_z_BE service including its version prefix, e.g. https://host/v1
     RUST_FACE_SERVICE_URL: z
       .string()
@@ -144,6 +155,13 @@ const envSchema = z
         code: 'custom',
         path: ['FACE_REVIEW_THRESHOLD'],
         message: 'must not be higher than FACE_MATCH_THRESHOLD',
+      });
+    }
+    if (env.FACE_SCAN_MOCK && env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['FACE_SCAN_MOCK'],
+        message: 'must not be enabled in production (it fakes face matches)',
       });
     }
     if (env.FACE_PROVIDER === 'rust-remote' && !env.RUST_FACE_SERVICE_URL) {

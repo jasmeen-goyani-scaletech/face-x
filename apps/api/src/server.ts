@@ -4,6 +4,7 @@ import { EnvValidationError, parseEnv } from './config/env';
 import { createLogger } from './config/logger';
 import { createDatabase } from './infrastructure/database/database';
 import { createFaceProvider } from './infrastructure/face/provider-registry';
+import { withDevScanFallback } from './infrastructure/face/providers/dev-scan-fallback';
 import { createWebPushSender } from './infrastructure/push/web-push-sender';
 import { createStripePaymentProvider } from './infrastructure/payments/stripe-provider';
 import { createStorageFromEnv } from './infrastructure/storage';
@@ -37,7 +38,14 @@ function main(): void {
   if (!env.STRIPE_SECRET_KEY) logger.warn('STRIPE_SECRET_KEY is not set: payments are disabled');
   else if (!env.STRIPE_WEBHOOK_SECRET)
     logger.warn('STRIPE_WEBHOOK_SECRET is not set: payments cannot be confirmed');
-  const faceProvider = createFaceProvider(env.FACE_PROVIDER, env, { db });
+  const realFaceProvider = createFaceProvider(env.FACE_PROVIDER, env, { db });
+  if (realFaceProvider && env.FACE_SCAN_MOCK) {
+    logger.warn('FACE_SCAN_MOCK=true: a scan the provider cannot answer returns a FAKE match (development only)');
+  }
+  const faceProvider =
+    realFaceProvider && env.FACE_SCAN_MOCK
+      ? withDevScanFallback(realFaceProvider, db, (msg, detail) => logger.warn(detail, msg))
+      : realFaceProvider;
   if (env.FACE_PROVIDER && !faceProvider) {
     logger.error(
       { provider: env.FACE_PROVIDER },
@@ -103,6 +111,7 @@ function main(): void {
             provider: faceProvider,
             images: storage.reader,
             consentPolicy: env.FACE_CONSENT_CODE,
+            enrollOnUpload: env.FACE_ENROLL_ON_UPLOAD,
             timeoutMs: env.FACE_PROVIDER_TIMEOUT_MS,
             objectUrl: storage.address ? (key) => storage.address!.urlFor(key) : undefined,
           }

@@ -67,6 +67,30 @@ export interface FaceService {
     actorUserId: string;
     meta: RequestMeta;
   }): Promise<'ENROLLED' | 'SKIPPED' | 'FAILED'>;
+  /**
+   * Enrolls a profile photo as soon as it has been uploaded, before any admin has reviewed it and without waiting for the
+   * face-scan consent (a product decision). A photo an admin already REJECTED is still refused. Never throws: the answer says what
+   * happened, and `problem` names a photo problem the person can fix by retaking it.
+   */
+  enrollUploadedPhoto(input: {
+    playerId: string | null;
+    staffProfileId: string | null;
+    documentId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<{ outcome: 'ENROLLED' | 'SKIPPED' | 'FAILED'; problem?: string }>;
+  /**
+   * An admin rejected the photo this person's face profile was made from: the identity is hard-deleted at the provider and the
+   * profile is revoked (reason PHOTO_REJECTED), so it can no longer match anyone. A profile made from another photo is left alone.
+   * Never throws.
+   */
+  revokeRejectedPhoto(input: {
+    playerId: string | null;
+    staffProfileId: string | null;
+    documentId: string;
+    actorUserId: string;
+    meta: RequestMeta;
+  }): Promise<'REVOKED' | 'SKIPPED' | 'FAILED'>;
   getStatus(ctx: AuthContext, playerId: string): Promise<FaceProfileStatusDto>;
   remove(ctx: AuthContext, playerId: string, meta: RequestMeta): Promise<FaceProfileStatusDto>;
   getStaffStatus(ctx: AuthContext, staffProfileId: string): Promise<FaceProfileStatusDto>;
@@ -86,6 +110,8 @@ export interface FaceRecognitionConfig {
   timeoutMs: number;
   /** The permanent URL of a stored object, recorded as the person's `photo_url` once their photo is enrolled. Absent: not recorded. */
   objectUrl?: (storageKey: string) => string | null;
+  /** Enroll a profile photo the moment it is uploaded (before admin review, without the face-scan consent). Absent: off. */
+  enrollOnUpload?: boolean;
 }
 
 export interface FaceServiceDeps {
@@ -174,16 +200,18 @@ export function createFaceService({
     /** Who may enroll this player: the owner for a request, nobody to ask for an admin's approval of the photo. */
     authorize: () => Promise<void>,
     automatic: boolean,
+    /** Enroll right after upload: no admin approval and no biometric consent needed (a rejected photo is still refused). */
+    allowUnreviewed = false,
   ): Promise<FaceProfileStatusDto> {
     const cfg = requireRecognition();
-    if (cfg.consentPolicy === undefined) {
+    if (cfg.consentPolicy === undefined && !allowUnreviewed) {
       // Whether biometric consent is required is a product decision that has not been made: do not guess.
       throw AppError.unavailable(
         'FACE_CONSENT_POLICY_NOT_CONFIGURED',
         'Face enrollment is not enabled until the biometric consent policy is configured',
       );
     }
-    const consentCode = cfg.consentPolicy;
+    const consentCode = allowUnreviewed ? WAIVED_CONSENT : cfg.consentPolicy!;
     await authorize();
 
     // Set once the provider has created an identity, cleared once our database owns it. Whatever remains set when
@@ -199,7 +227,11 @@ export function createFaceService({
         // The replacement happens below, once every other check has passed, so a missing consent or an unreadable photo
         // can never cost someone the face they already have.
         const existing = await r.lockActive(subject);
-        if (existing && !(automatic && existing.sourceDocumentId !== body.documentId)) {
+        // A fresh upload always replaces (a retake reuses the document row, so its id alone cannot tell old from new).
+        if (
+          existing &&
+          !(automatic && (allowUnreviewed || existing.sourceDocumentId !== body.documentId))
+        ) {
           throw AppError.conflict(
             'FACE_PROFILE_ALREADY_EXISTS',
             'This person already has a face profile',
@@ -212,7 +244,9 @@ export function createFaceService({
           source.documentType !== 'PROFILE_PHOTO' ||
           !source.uploaded ||
           // An unreviewed photo could be anyone's face: only a photo an admin approved can become an identity.
-          source.documentStatus !== 'APPROVED' ||
+          (allowUnreviewed
+            ? source.documentStatus === 'REJECTED'
+            : source.documentStatus !== 'APPROVED') ||
           FROZEN_REGISTRATION_STATUSES.includes(source.registrationStatus)
         ) {
           throw AppError.conflict(
@@ -434,6 +468,82 @@ export function createFaceService({
         actorUserId,
         meta,
       });
+    },
+
+    async enrollUploadedPhoto({ playerId, staffProfileId, documentId, actorUserId, meta }) {
+      const subject = playerId
+        ? playerSubject(playerId)
+        : staffProfileId
+          ? staffSubject(staffProfileId)
+          : null;
+      if (!subject || !recognition?.enrollOnUpload) return { outcome: 'SKIPPED' };
+      try {
+        await enrollCore(actorUserId, subject, { documentId }, meta, async () => undefined, true, true);
+        return { outcome: 'ENROLLED' };
+      } catch (err) {
+        if (
+          err instanceof AppError &&
+          ['FACE_PROFILE_ALREADY_EXISTS', 'FACE_PHOTO_NOT_ELIGIBLE'].includes(err.code)
+        ) {
+          return { outcome: 'SKIPPED' };
+        }
+        // A photo problem (no face, several faces, too unclear) is something the person fixes by retaking it.
+        const problem =
+          err instanceof AppError && err.code === 'FACE_IMAGE_REJECTED'
+            ? err.details?.find((d) => d.path === 'documentId')?.message
+            : undefined;
+        logger.warn(
+          {
+            subjectId: subject.id,
+            code: err instanceof AppError ? err.code : 'UNEXPECTED',
+            cause: safeCause(err),
+          },
+          'Face enrollment after photo upload did not complete',
+        );
+        return { outcome: 'FAILED', ...(problem ? { problem } : {}) };
+      }
+    },
+
+    async revokeRejectedPhoto({ playerId, staffProfileId, documentId, actorUserId, meta }) {
+      const subject = playerId
+        ? playerSubject(playerId)
+        : staffProfileId
+          ? staffSubject(staffProfileId)
+          : null;
+      if (!subject || !recognition) return 'SKIPPED';
+      try {
+        let revoked = false;
+        await repository.transaction(async (r) => {
+          await r.lockFace(subject);
+          const active = await r.lockActive(subject);
+          if (!active || active.sourceDocumentId !== documentId) return;
+          await withDeadline(recognition.timeoutMs, (signal) =>
+            recognition.provider.remove(active.reference, { signal }),
+          ).catch((e: unknown) => {
+            throw providerError(e);
+          });
+          await r.revokeProfile(active.id, actorUserId, 'PHOTO_REJECTED');
+          await r.audit({
+            action: 'FACE_PROFILE_REMOVED',
+            actorUserId,
+            entityId: active.id,
+            metadata: { ...whoIs(subject), reason: 'PHOTO_REJECTED' },
+            meta,
+          });
+          revoked = true;
+        });
+        return revoked ? 'REVOKED' : 'SKIPPED';
+      } catch (err) {
+        logger.warn(
+          {
+            subjectId: subject.id,
+            code: err instanceof AppError ? err.code : 'UNEXPECTED',
+            cause: safeCause(err),
+          },
+          'Could not revoke the face profile of a rejected photo',
+        );
+        return 'FAILED';
+      }
     },
 
     async getStatus(ctx, playerId) {

@@ -270,6 +270,8 @@ export interface ApiDocument {
   id: string;
   registrationId: string;
   documentType: ApiDocumentType;
+  /** Only on the answer to confirming a profile photo's upload: what happened to its face enrollment. */
+  faceEnrollment?: { outcome: 'ENROLLED' | 'SKIPPED' | 'FAILED'; problem?: string };
   fileName: string;
   mimeType: string;
   sizeBytes: number | null;

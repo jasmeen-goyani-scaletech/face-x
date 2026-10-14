@@ -129,14 +129,60 @@ describe('rust-remote: enroll', () => {
     expect(await run(['already_enrolled'])).toBe('IMAGE_REJECTED');
   });
 
+  it('drops eventId and rescans when an older service refuses the unknown field', async () => {
+    const refuse = {
+      status: 422,
+      json: { message: 'Failed to deserialize: eventId: unknown field `eventId`, expected one of `avatar`' },
+    };
+    const ok = { json: { matched: false, decision: 'denied_no_match' } };
+    const svc = fakeService(refuse, ok, ok);
+    const req = { image: jpeg, maxCandidates: 1, eventId: '7bc10e4b-99be-4437-8cad-02e7364350c2' };
+    expect((await svc.provider.identify(req)).candidates).toEqual([]);
+    expect(svc.seen[0]!.body).toHaveProperty('eventId');
+    expect(svc.seen[1]!.body).not.toHaveProperty('eventId');
+    await svc.provider.identify(req); // remembered: not sent again
+    expect(svc.seen).toHaveLength(3);
+    expect(svc.seen[2]!.body).not.toHaveProperty('eventId');
+  });
+
+  it('drops role and re-enrolls when an older service refuses the unknown field', async () => {
+    const refuse = { status: 422, json: { message: 'role: unknown field `role`, expected one of `avatar`' } };
+    const svc = fakeService(refuse, { json: { data: { id: 'member-1' } } });
+    const out = await svc.provider.enroll({ ...enrollReq, role: 'PLAYER' });
+    expect(out.reference).toBe('member-1');
+    expect(svc.seen[0]!.body).toHaveProperty('role');
+    expect(svc.seen[1]!.body).not.toHaveProperty('role');
+  });
+
+  it('retries a scan once after a connection error or a 503, but not an enroll', async () => {
+    const ok = { json: { matched: false, decision: 'denied_no_match' } };
+    const scanReq = { image: jpeg, maxCandidates: 1 };
+    const flaky = fakeService(new TypeError('fetch failed'), ok);
+    expect((await flaky.provider.identify(scanReq)).candidates).toEqual([]);
+    expect(flaky.seen).toHaveLength(2);
+    const busy = fakeService({ status: 503 }, ok);
+    await busy.provider.identify(scanReq);
+    expect(busy.seen).toHaveLength(2);
+    const down = fakeService(new TypeError('fetch failed'), new TypeError('fetch failed'));
+    expect(await code(down.provider.identify(scanReq))).toBe('UNAVAILABLE');
+    const enroll = fakeService(new TypeError('fetch failed'), ok);
+    expect(await code(enroll.provider.enroll(enrollReq))).toBe('UNAVAILABLE');
+    expect(enroll.seen).toHaveLength(1);
+  });
+
   it('reports outages as UNAVAILABLE and never puts the response body or host in the error', async () => {
-    for (const status of [500, 503, 400]) {
+    for (const status of [500, 503]) {
       const { provider } = fakeService({ status, json: { message: 'secret-detail' } });
       const err = await rejection(provider.enroll(enrollReq));
       expect(err).toBeInstanceOf(FaceProviderError);
       expect(err.code).toBe('UNAVAILABLE');
       expect(err.message).not.toContain('secret-detail');
     }
+    // A 400 is the service refusing the photo (e.g. it cannot decode it), not an outage.
+    const bad = fakeService({ status: 400, json: { message: 'secret-detail' } });
+    const rejected = await rejection(bad.provider.enroll(enrollReq));
+    expect(rejected.code).toBe('IMAGE_REJECTED');
+    expect(rejected.message).not.toContain('secret-detail');
     const down = fakeService(new TypeError('connect ECONNREFUSED 10.0.0.1'));
     const err = await rejection(down.provider.enroll(enrollReq));
     expect(err.code).toBe('UNAVAILABLE');

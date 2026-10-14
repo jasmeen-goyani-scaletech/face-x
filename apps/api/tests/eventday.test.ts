@@ -20,7 +20,7 @@ import {
   type FakeFace,
 } from './helpers/fake-face';
 import { createFakeStorage } from './helpers/fake-storage';
-import { createEvent, createOrg } from './helpers/fixtures';
+import { createEvent, createOrg, dropMigratedGuardianConsent } from './helpers/fixtures';
 import { bearerFor, buildApi, createUser } from './helpers/test-app';
 
 /**
@@ -77,6 +77,7 @@ beforeAll(async () => {
   adminA = (await createUser(db, { roles: ['ADMIN'], organizationId: orgA })).id;
   adminA2 = (await createUser(db, { roles: ['ADMIN'], organizationId: orgA })).id;
   adminB = (await createUser(db, { roles: ['ADMIN'], organizationId: orgB })).id;
+  await dropMigratedGuardianConsent(db);
   const { rows } = await db.query<{ id: string }>(
     `insert into public.consents (code, version, title, body, effective_at)
      values ('GUARDIAN_CONSENT', 1, 'Test guardian consent', '[TEST CONSENT TEXT - not legal wording]', now() - interval '1 day')

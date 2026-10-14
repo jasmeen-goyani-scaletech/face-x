@@ -207,6 +207,8 @@ export function createApp({
       notifications.publisher,
       {
         afterPhotoApproved: (input) => faceService.enrollApprovedPhoto(input),
+        afterPhotoUploaded: (input) => faceService.enrollUploadedPhoto(input),
+        afterPhotoRejected: (input) => faceService.revokeRejectedPhoto(input),
       },
     ),
   );

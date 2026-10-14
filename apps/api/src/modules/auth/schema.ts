@@ -26,3 +26,10 @@ export const loginBodySchema = z.object({
   email,
   password: z.string().min(1).max(128),
 });
+
+/** A visitor filling in a public registration form: the contact email plus the role they register as (never ADMIN). */
+export const guestBodySchema = z.object({
+  email,
+  fullName: z.string().trim().min(1).max(120).optional(),
+  role: z.enum(['PARENT', 'PLAYER', 'COACH', 'STAFF']),
+});

@@ -14,11 +14,16 @@ export interface Credentials {
 }
 
 export interface AuthRepository {
-  /** Creates the user and its credentials atomically. Null when the email is already registered. */
+  /**
+   * Creates the user and its credentials atomically. Null when the email is already registered.
+   * A null `passwordHash` makes a guest account: no credentials row, so it can never pass a password login.
+   */
   createUserWithPassword(input: {
     email: string;
     fullName: string | null;
-    passwordHash: string;
+    passwordHash: string | null;
+    /** Granted in the same transaction (a guest picks the role up front). */
+    role?: string;
   }): Promise<UserProfile | null>;
   findCredentialsByEmail(email: string): Promise<Credentials | null>;
   updatePasswordHash(userId: string, passwordHash: string): Promise<void>;
@@ -52,7 +57,7 @@ async function revokeFamily(tx: Queryable, familyId: string, reason: string): Pr
 
 export function createAuthRepository(db: Database): AuthRepository {
   return {
-    async createUserWithPassword({ email, fullName, passwordHash }) {
+    async createUserWithPassword({ email, fullName, passwordHash, role }) {
       try {
         return await db.transaction(async (tx) => {
           const { rows } = await tx.query<{
@@ -67,10 +72,18 @@ export function createAuthRepository(db: Database): AuthRepository {
             [email, fullName],
           );
           const row = rows[0]!;
-          await tx.query(
-            'insert into public.user_credentials (user_id, password_hash) values ($1, $2)',
-            [row.id, passwordHash],
-          );
+          if (passwordHash) {
+            await tx.query(
+              'insert into public.user_credentials (user_id, password_hash) values ($1, $2)',
+              [row.id, passwordHash],
+            );
+          }
+          if (role) {
+            await tx.query(
+              'insert into public.user_roles (user_id, role, granted_by) values ($1, $2, $1)',
+              [row.id, role],
+            );
+          }
           return toUserProfile(row);
         });
       } catch (err) {

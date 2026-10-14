@@ -64,10 +64,19 @@ export type RejectionReasonCode = (typeof REJECTION_REASON_CODES)[number];
 export type DocumentState = 'AWAITING_UPLOAD' | 'UPLOADED' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
 
 /** What the API returns. Never includes the storage key, bucket or any URL. */
+/** What happened to a profile photo's face enrollment right after it was uploaded (only on the answer to confirming an upload). */
+export interface FaceEnrollmentResult {
+  outcome: 'ENROLLED' | 'SKIPPED' | 'FAILED';
+  /** A photo problem the person can fix by retaking it: NO_FACE_DETECTED, MULTIPLE_FACES, LOW_QUALITY or IMAGE_REJECTED. */
+  problem?: string;
+}
+
 export interface DocumentDto {
   id: string;
   registrationId: string;
   documentType: DocumentType;
+  /** Present only when a profile photo's upload was just confirmed. */
+  faceEnrollment?: FaceEnrollmentResult;
   fileName: string;
   mimeType: string;
   sizeBytes: number | null;

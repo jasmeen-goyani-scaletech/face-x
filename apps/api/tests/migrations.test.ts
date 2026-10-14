@@ -167,7 +167,9 @@ describe('schema', () => {
     expect(consents.length).toBeGreaterThan(0);
     // The face-scan consent carries the approved wording (published by a migration, which also runs in production): it is the one
     // consent that is not a placeholder. Every other consent here is.
-    const placeholders = consents.filter((c) => !c.title.startsWith('Face-scan'));
+    const placeholders = consents.filter(
+      (c) => !c.title.startsWith('Face-scan') && !c.title.startsWith('Liability release'),
+    );
     expect(placeholders.length).toBeGreaterThan(0);
     for (const c of placeholders) {
       expect(c.title).toContain('DEV PLACEHOLDER');
