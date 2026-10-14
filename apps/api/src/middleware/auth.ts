@@ -9,6 +9,8 @@ import type { Role } from '../modules/users';
 export interface AuthMiddleware {
   /** 401 unless a valid access token is presented; sets req.auth. */
   requireAuth: RequestHandler;
+  /** Sets req.auth when a valid access token is presented; never rejects (a missing or bad token is just anonymous). */
+  optionalAuth: RequestHandler;
   /** 403 unless the caller holds at least one of `roles`. Use after requireAuth. */
   requireRole: (...roles: Role[]) => RequestHandler;
   /**
@@ -25,6 +27,17 @@ export function createAuthMiddleware(
 ): AuthMiddleware {
   const requireAuth: RequestHandler = async (req, _res, next) => {
     req.auth = await auth.authenticate(req.headers.authorization);
+    next();
+  };
+
+  const optionalAuth: RequestHandler = async (req, _res, next) => {
+    if (req.headers.authorization) {
+      try {
+        req.auth = await auth.authenticate(req.headers.authorization);
+      } catch {
+        // Anonymous: the route is public, so a bad token must not turn it into an error.
+      }
+    }
     next();
   };
 
@@ -52,5 +65,5 @@ export function createAuthMiddleware(
       next();
     };
 
-  return { requireAuth, requireRole, requireEventAccess };
+  return { requireAuth, optionalAuth, requireRole, requireEventAccess };
 }

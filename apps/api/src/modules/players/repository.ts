@@ -53,6 +53,11 @@ export interface PlayerRepository {
     email: string;
     phone: string | null;
   }): Promise<string | null>;
+  /** Updates the caller's own guardian record with whatever the latest registration submitted (a field left out stays as it is). */
+  updateOwnParent(
+    parentId: string,
+    input: { firstName?: string; lastName?: string; phone?: string },
+  ): Promise<void>;
   /** A guardian record without an account. Null when the email is already taken (race). */
   insertParentWithoutAccount(input: {
     firstName: string;
@@ -195,6 +200,17 @@ function build(q: Queryable, run: PlayerRepository['transaction']): PlayerReposi
         [i.userId, i.firstName, i.lastName, i.email, i.phone],
       );
       return rows[0]?.id ?? null;
+    },
+
+    async updateOwnParent(parentId, i) {
+      await q.query(
+        `update public.parents
+            set first_name = coalesce($2, first_name),
+                last_name = coalesce($3, last_name),
+                phone = coalesce($4, phone)
+          where id = $1`,
+        [parentId, i.firstName ?? null, i.lastName ?? null, i.phone ?? null],
+      );
     },
 
     async insertParentWithoutAccount(i) {

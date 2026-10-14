@@ -262,7 +262,7 @@ export default function CoachRegisterPage() {
       <RegistrationHeader role="COACH" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         <Suspense fallback={null}>
-          <RequireAuth>
+          <RequireAuth allowGuest>
             <CoachWizard />
           </RequireAuth>
         </Suspense>

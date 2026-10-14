@@ -2,6 +2,8 @@ import { apiRequest } from './http';
 import { loadAllPages } from './pages';
 import type { ApiEvent, ApiPage, ApiTeam, ApiTeamWithEvent } from './types';
 
+/* The catalog is public: a registration form reads it before its visitor has a session. */
+
 /** The most the API returns for one page of events. */
 const EVENT_PAGE_SIZE = 100;
 
@@ -11,14 +13,14 @@ const EVENT_PAGE_SIZE = 100;
  */
 export const listEvents = () =>
   loadAllPages(
-    (page) => apiRequest<ApiPage<ApiEvent>>('/events', { query: { page: String(page), pageSize: String(EVENT_PAGE_SIZE) } }),
+    (page) => apiRequest<ApiPage<ApiEvent>>('/events', { query: { page: String(page), pageSize: String(EVENT_PAGE_SIZE) }, auth: false }),
     EVENT_PAGE_SIZE
   );
 
-export const listTeams = (eventId: string) => apiRequest<ApiTeam[]>(`/events/${eventId}/teams`);
+export const listTeams = (eventId: string) => apiRequest<ApiTeam[]>(`/events/${eventId}/teams`, { auth: false });
 
 /** Resolves a coach invite link's code (and the team it names) to the team and event. 404 INVITE_NOT_FOUND if invalid. */
 export const resolveInvite = (input: { inviteCode: string; teamId?: string }) =>
-  apiRequest<ApiTeamWithEvent>('/teams/resolve-invite', { method: 'POST', body: input });
+  apiRequest<ApiTeamWithEvent>('/teams/resolve-invite', { method: 'POST', body: input, auth: false });
 
-export const getEvent = (eventId: string) => apiRequest<ApiEvent>(`/events/${eventId}`);
+export const getEvent = (eventId: string) => apiRequest<ApiEvent>(`/events/${eventId}`, { auth: false });

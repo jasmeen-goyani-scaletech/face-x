@@ -1,6 +1,6 @@
 import type { Router } from 'express';
-import type { Database } from '../../infrastructure/database/database';
 import type { AuthMiddleware } from '../../middleware/auth';
+import type { Database } from '../../infrastructure/database/database';
 import { createUserRateLimiter } from '../../middleware/rate-limit';
 import { createCatalogController } from './controller';
 import { createCatalogRepository } from './repository';
@@ -19,7 +19,7 @@ export function createCatalogModule(
   return createCatalogRouter(
     createCatalogController(createCatalogService(createCatalogRepository(db))),
     {
-      requireAuth: auth.requireAuth,
+      optionalAuth: auth.optionalAuth,
       inviteLimiter: createUserRateLimiter({ windowMs: 60_000, limit: inviteLookupsPerMinute }),
     },
   );

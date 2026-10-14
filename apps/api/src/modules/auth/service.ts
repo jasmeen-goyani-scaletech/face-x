@@ -18,6 +18,11 @@ import type { AuthContext, MeResponse, Session } from './types';
  */
 export interface AuthService {
   register(input: { email: string; password: string; fullName?: string }): Promise<MeResponse>;
+  /**
+   * Public registration form: creates a passwordless guest account with its role and signs it in, in one step, so the
+   * registrant never meets an account screen. 409 when the email already has an account (they sign in instead).
+   */
+  startGuestSession(input: { email: string; fullName?: string; role: string }): Promise<Session>;
   login(input: { email: string; password: string }): Promise<Session>;
   /** Rotates the refresh token: the presented one stops working, a new one is issued. */
   refresh(refreshToken: string | undefined): Promise<Session>;
@@ -95,6 +100,29 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
         organizationId: created.organizationId,
         roles: [],
       };
+    },
+
+    async startGuestSession({ email, fullName, role }) {
+      const created = await repository.createUserWithPassword({
+        email,
+        fullName: fullName ?? null,
+        passwordHash: null,
+        role,
+      });
+      if (!created)
+        throw AppError.conflict(
+          'EMAIL_ALREADY_REGISTERED',
+          'An account with this email already exists. Sign in instead.',
+        );
+      const refreshToken = generateRefreshToken();
+      const expiresAt = refreshExpiry();
+      await repository.createRefreshToken({
+        userId: created.id,
+        familyId: randomUUID(),
+        tokenHash: hash(refreshToken),
+        expiresAt,
+      });
+      return buildSession(created.id, refreshToken, expiresAt);
     },
 
     async login({ email, password }) {

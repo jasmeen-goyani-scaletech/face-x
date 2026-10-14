@@ -394,6 +394,10 @@ export function createEventDayService({
         frameUrl = found.scanImageUrl ?? null;
       } catch (err) {
         const { app, code } = providerFailure(err);
+        if (err instanceof FaceProviderError && IMAGE_PROBLEM_CODES.includes(err.code)) {
+          // The provider's own (already scrubbed) reason, so "image rejected" can be told apart from "no face" in the log.
+          logger.warn({ eventId, code, bytes: image.length, mimeType, reason: err.message }, 'Face scan image refused');
+        }
         // The failed attempt is recorded too (reason code only). Recording must never hide the real error.
         await recordScan(ctx, eventId, meta, { result: 'ERROR', reasonCode: code }).catch(
           (e: unknown) =>

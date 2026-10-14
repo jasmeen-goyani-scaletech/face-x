@@ -124,6 +124,25 @@ describe('POST /players: a parent registers a child', () => {
     expect(rows[0]!.n).toBe(1);
   });
 
+  it('updates the guardian record with the details sent for a later child', async () => {
+    const parent = await newParent();
+    await as(app, parent.id).post('/api/v1/players', childBody({ firstName: 'First' }));
+    const second = await as(app, parent.id).post(
+      '/api/v1/players',
+      childBody({
+        firstName: 'Second',
+        guardian: { relationship: 'Aunt', firstName: 'Ema', lastName: 'Won', phone: '555-018-9999' },
+      }),
+    );
+    expect(second.status).toBe(201);
+    const { rows } = await db.query<{ first_name: string; last_name: string; phone: string }>(
+      'select first_name, last_name, phone from public.parents where user_id = $1',
+      [parent.id],
+    );
+    expect(rows).toEqual([{ first_name: 'Ema', last_name: 'Won', phone: '555-018-9999' }]);
+    expect(second.body.data.guardians[0].relationship).toBe('Aunt');
+  });
+
   it('requires guardian details the first time, and a guardian every time', async () => {
     const parent = await newParent();
     const noGuardian = await as(app, parent.id).post(

@@ -158,7 +158,7 @@ export default function TournamentRegisterPage({ params }: { params: { tournamen
     <main>
       <Topbar eyebrow="New registration" />
       <Suspense fallback={<p className="text-ink-soft text-sm px-5 pt-8">Loading…</p>}>
-        <RequireAuth>
+        <RequireAuth allowGuest>
           <TournamentRegisterFlow tournamentId={params.tournamentId} />
         </RequireAuth>
       </Suspense>

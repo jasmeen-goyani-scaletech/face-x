@@ -204,6 +204,13 @@ export function createPlayerService(repository: PlayerRepository): PlayerService
             'A guardian record with your email already exists',
           );
         }
+      } else if (guardian.firstName || guardian.lastName || guardian.phone) {
+        // A later child: the parent may have updated their contact details on this registration, so the latest ones win.
+        await r.updateOwnParent(parentId, {
+          firstName: guardian.firstName,
+          lastName: guardian.lastName,
+          phone: guardian.phone,
+        });
       }
       const id = await r.insertPlayer({ ...common, userId: null });
       if (!id) throw AppError.conflict('PLAYER_ALREADY_EXISTS', 'Player could not be created');

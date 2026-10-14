@@ -112,11 +112,8 @@ function PlayerWizard() {
           wording={w.consentWording}
           guardianSaved={registration !== null && registration.guardians.length > 0}
           consentRecorded={consentRequirement?.accepted === true}
-          faceWording={w.faceConsentWording}
-          faceRecorded={w.faceConsentRecorded}
-          faceChecked={w.faceConsentChecked}
-          onFaceChange={w.setFaceConsentChecked}
           locked={w.locked}
+          guest={!user}
           saving={w.saving}
           saveError={w.saveError}
           apiFieldErrors={w.apiFieldErrors}
@@ -166,7 +163,7 @@ export default function PlayerRegisterPage() {
       <RegistrationHeader role="PLAYER" />
       <div className="mx-auto max-w-[640px] page-gutter pt-6 pb-16">
         <Suspense fallback={null}>
-          <RequireAuth>
+          <RequireAuth allowGuest>
             <PlayerWizard />
           </RequireAuth>
         </Suspense>

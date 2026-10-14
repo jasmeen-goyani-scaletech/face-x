@@ -11,7 +11,8 @@ const schoolId = z.string().trim().min(1).max(50);
 export const guardianInputSchema = z
   .object({
     relationship,
-    // Only used the first time, to create the caller's own guardian record. Required then (checked in the service).
+    // Create the caller's own guardian record the first time (required then, checked in the service); on later children, whatever is
+    // sent here updates that record.
     firstName: personName.optional(),
     lastName: personName.optional(),
     phone: usPhone.optional(),

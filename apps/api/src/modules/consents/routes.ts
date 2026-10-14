@@ -13,7 +13,8 @@ export function createConsentRouter(
   mw: ConsentRouteMiddleware,
 ): Router {
   const router = Router();
-  router.get('/consents/current', mw.requireAuth, controller.listCurrent);
+  // Public: the wording is shown on the registration form before a session exists.
+  router.get('/consents/current', controller.listCurrent);
   router.get('/registrations/:registrationId/consents', mw.requireAuth, controller.status);
   router.post(
     '/registrations/:registrationId/consents',

@@ -1,5 +1,5 @@
 import { apiRequest } from './http';
-import { clearSession, setSession, setSessionRoles } from './session';
+import { clearSession, getSessionUser, setSession, setSessionRoles } from './session';
 import type { ApiUser, SelfAssignableRole, SessionResponse } from './types';
 
 /** Creates an account. It has no roles and is not signed in: call `login` next. */
@@ -44,3 +44,20 @@ export async function assignRole(role: SelfAssignableRole): Promise<ApiUser['rol
 
 /** The account can own players and registrations (it has picked PARENT or PLAYER). */
 export const hasFamilyRole = (user: ApiUser | null): boolean => !!user && user.roles.some((r) => r === 'PARENT' || r === 'PLAYER');
+
+/**
+ * A public registration form's first save: starts a passwordless guest session from the contact email the form collected
+ * (the API sets the refresh cookie), so every later call is an ordinary signed-in one. Does nothing when a session already
+ * exists. Rejects with EMAIL_ALREADY_REGISTERED when the email belongs to an account: that visitor signs in instead.
+ */
+export async function ensureSession(input: { email: string; fullName?: string; role: SelfAssignableRole }): Promise<ApiUser> {
+  const existing = getSessionUser();
+  if (existing) return existing;
+  const data = await apiRequest<SessionResponse>('/auth/guest', {
+    method: 'POST',
+    body: { email: input.email.trim(), fullName: input.fullName?.trim() || undefined, role: input.role },
+    auth: false
+  });
+  setSession(data);
+  return data.user;
+}
