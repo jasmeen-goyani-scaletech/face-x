@@ -11,7 +11,7 @@ import InfoTooltip from './InfoTooltip';
 import DocumentPreviewDialog from '@/components/admin/DocumentPreviewDialog';
 import { getDownloadUrl } from '@/lib/api/documents';
 import { describeError } from '@/lib/api/errors';
-import { MAX_PDF_BYTES_UPLOADED, formatFileSize, readDocumentFile, validateDocumentFile } from '@/lib/playerDocuments';
+import { DOCUMENT_ACCEPT, formatFileSize, readDocumentFile, validateDocumentFile } from '@/lib/playerDocuments';
 import type { UploadedFile } from '@/lib/types';
 
 /**
@@ -90,7 +90,7 @@ export default function DocumentUploadRow({
     if (!files || files.length === 0) return;
     if (files.length > 1) return setFileError('Drop one file at a time for each document.');
     const file = files[0];
-    const problem = validateDocumentFile(file, upload ? MAX_PDF_BYTES_UPLOADED : undefined);
+    const problem = validateDocumentFile(file);
     if (problem) return setFileError(problem);
     setProgress(0);
     try {
@@ -212,7 +212,7 @@ export default function DocumentUploadRow({
         id={inputId}
         ref={inputRef}
         type="file"
-        accept="image/*,application/pdf"
+        accept={DOCUMENT_ACCEPT}
         aria-label={`${value.uploaded ? 'Replace' : 'Upload'} ${label}`}
         className="sr-only"
         onChange={(e) => {

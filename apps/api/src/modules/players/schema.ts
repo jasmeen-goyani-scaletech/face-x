@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { emailField, isoDateOfBirth, personName, usPhone } from '../../shared/validation/fields';
+import { AGE_DIVISIONS } from './types';
 
 const relationship = z.string().trim().min(1, 'is required').max(40);
 const schoolId = z.string().trim().min(1).max(50);
@@ -27,6 +28,8 @@ export const createPlayerBodySchema = z
     email: emailField.optional(),
     phone: usPhone.optional(),
     schoolId: schoolId.optional(),
+    /** The bracket the player plays in. Required for every new player. */
+    ageDivision: z.enum(AGE_DIVISIONS),
     /** true = the caller IS the player (PLAYER role); false/absent = the caller registers a child (PARENT role). */
     forSelf: z.boolean().optional(),
     guardian: guardianInputSchema.optional(),
@@ -41,6 +44,7 @@ export const updatePlayerBodySchema = z
     email: emailField.nullable().optional(),
     phone: usPhone.nullable().optional(),
     schoolId: schoolId.nullable().optional(),
+    ageDivision: z.enum(AGE_DIVISIONS).optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0, 'at least one field is required');

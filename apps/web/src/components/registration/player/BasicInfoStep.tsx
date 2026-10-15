@@ -8,17 +8,17 @@ import LockedTeamDropdown from '@/components/registration/LockedTeamDropdown';
 import { dobBounds, dobError } from '@/lib/age';
 import PlayerAgeCalculatorField from './PlayerAgeCalculatorField';
 import SaveErrorAlert from './SaveErrorAlert';
-import type { ApiEvent, ApiTeam } from '@/lib/api/types';
+import { AGE_DIVISIONS, type ApiEvent, type ApiTeam } from '@/lib/api/types';
 import type { InviteState } from '@/lib/registration/usePlayerWizard';
 import { MSG, compact, validatePersonBasics } from '@/lib/validation';
 import { useFieldErrors } from '@/lib/useFieldErrors';
 import { formatEventDate } from '@/lib/format';
 import type { PlayerRegistration } from '@/lib/types';
 
-type BasicField = 'event' | 'firstName' | 'lastName' | 'dob' | 'phone' | 'email' | 'team';
+type BasicField = 'event' | 'firstName' | 'lastName' | 'dob' | 'ageDivision' | 'phone' | 'email' | 'team';
 
 // Same order as on screen: submit focuses the first invalid one. Keys equal the input ids.
-const FIELD_ORDER: BasicField[] = ['event', 'firstName', 'lastName', 'dob', 'phone', 'email', 'team'];
+const FIELD_ORDER: BasicField[] = ['event', 'firstName', 'lastName', 'dob', 'ageDivision', 'phone', 'email', 'team'];
 
 const eventDate = (e: ApiEvent) => formatEventDate(e.startsAt, e.timezone);
 
@@ -69,6 +69,7 @@ export default function BasicInfoStep({
       ...compact({
         event: eventId ? null : 'Please select the event you’re registering for.',
         dob: b.dob ? dobError(b.dob) : MSG.dobRequired,
+        ageDivision: b.ageDivision ? null : MSG.ageDivisionRequired,
         team: reg.teamId ? null : MSG.team
       })
     },
@@ -166,6 +167,21 @@ export default function BasicInfoStep({
             onBlur={blur('dob')}
             onChange={(e) => set('dob', e.target.value)}
           />
+          <SelectField
+            id="ageDivision"
+            label="Age Division"
+            value={b.ageDivision ?? ''}
+            error={error('ageDivision')}
+            onBlur={blur('ageDivision')}
+            onChange={(e) => set('ageDivision', e.target.value as PlayerRegistration['basic']['ageDivision'])}
+          >
+            <option value="">Select a division...</option>
+            {AGE_DIVISIONS.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </SelectField>
           <TextField
             id="phone"
             label="Mobile Number"

@@ -83,6 +83,8 @@ export interface DocumentDto {
   state: DocumentState;
   uploadedAt: string | null;
   submittedAt: string | null;
+  /** The AI check turned this document down twice and the family sent it on anyway. Only the reviewer needs to know. */
+  aiRejected: boolean;
   review: {
     decision: 'APPROVED' | 'REJECTED';
     reasonCode: RejectionReasonCode | null;

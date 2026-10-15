@@ -21,6 +21,7 @@ import {
 } from '@/lib/api/registrations';
 import type {
   ApiConsentStatus,
+  ApiAgeDivision,
   ApiConsentVersion,
   ApiDocument,
   ApiEvent,
@@ -33,9 +34,10 @@ import type {
 } from '@/lib/api/types';
 import { calcAge } from '@/lib/age';
 import { setPlayerStarted } from '@/lib/activeRole';
-import { freshPlayerRegistration, type PlayerRegistration, type PlayerStep, type TeamInvite, type UploadedFile } from '@/lib/types';
+import { emptyFile, freshPlayerRegistration, type PlayerRegistration, type PlayerStep, type TeamInvite, type UploadedFile } from '@/lib/types';
 import { DOCUMENT_KEYS, DOCUMENT_TYPE_BY_KEY, hasRejectedDocument, toUploadedFile, type PlayerDocumentKey } from './documentMap';
 import { uploadPlayerDocument } from './uploads';
+import { useAiDocumentCheck } from './useAiDocumentCheck';
 
 const GUARDIAN_CONSENT = 'GUARDIAN_CONSENT';
 /** Statuses a family can still be working on from the wizard (payment may be outstanding). */
@@ -139,7 +141,7 @@ function formFrom(registration: ApiRegistration, consents: ApiConsentStatus | nu
     status: registration.status === 'DRAFT' ? 'draft' : 'submitted',
     createdAt: Date.parse(registration.createdAt),
     completedAt: registration.submittedAt ? Date.parse(registration.submittedAt) : null,
-    basic: { firstName: p.firstName, lastName: p.lastName, email: p.email ?? '', phone: p.phone ?? '', dob: p.dateOfBirth },
+    basic: { firstName: p.firstName, lastName: p.lastName, email: p.email ?? '', phone: p.phone ?? '', dob: p.dateOfBirth, ageDivision: p.ageDivision ?? '' },
     emergency: {
       guardianName: guardian ? `${guardian.firstName} ${guardian.lastName}`.trim() : previous.emergency.guardianName,
       relationship: guardian?.relationship ?? previous.emergency.relationship,
@@ -474,9 +476,15 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     const b = form.basic;
     const mine = await listPlayers();
     const match = mine.find((p) => sameText(p.firstName, b.firstName) && sameText(p.lastName, b.lastName) && p.dateOfBirth === b.dob);
-    if (match) return match;
+    if (match) {
+      // The division chosen now wins over what the earlier attempt saved; a player already locked by a submission keeps theirs.
+      if (b.ageDivision && match.ageDivision !== b.ageDivision) {
+        return updatePlayer(match.id, { ageDivision: b.ageDivision }).catch(() => match);
+      }
+      return match;
+    }
 
-    const common = { firstName: b.firstName.trim(), lastName: b.lastName.trim(), dateOfBirth: b.dob, email: b.email.trim() || undefined, phone: b.phone.trim() || undefined };
+    const common = { firstName: b.firstName.trim(), lastName: b.lastName.trim(), dateOfBirth: b.dob, ageDivision: b.ageDivision as ApiAgeDivision, email: b.email.trim() || undefined, phone: b.phone.trim() || undefined };
     if (!isMinorNow(b.dob)) return createPlayer({ ...common, forSelf: true });
     const g = form.emergency;
     const name = splitFullName(g.guardianName);
@@ -550,6 +558,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
           if (b.firstName.trim() !== current.player.firstName) patch.firstName = b.firstName.trim();
           if (b.lastName.trim() !== current.player.lastName) patch.lastName = b.lastName.trim();
           if (b.dob !== current.player.dateOfBirth) patch.dateOfBirth = b.dob;
+          if (b.ageDivision && b.ageDivision !== current.player.ageDivision) patch.ageDivision = b.ageDivision;
           if ((b.email.trim() || null) !== current.player.email) patch.email = b.email.trim() || null;
           if ((b.phone.trim() || null) !== current.player.phone) patch.phone = b.phone.trim() || null;
           if (Object.keys(patch).length > 0) await updatePlayer(current.player.id, patch);
@@ -609,16 +618,20 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   }, [run, createDraft, hydrate, goTo]);
 
   // ---------------------------------------------------------------- step 3: photo & documents
+  const aiCheck = useAiDocumentCheck();
   const documents = useMemo(() => {
     const out = {} as Record<PlayerDocumentKey, UploadedFile>;
     for (const key of DOCUMENT_KEYS) {
-      out[key] = toUploadedFile(
-        apiDocuments.find((d) => d.documentType === DOCUMENT_TYPE_BY_KEY[key]),
-        previews[key]
-      );
+      // A document the AI check turned down the first time is held back until the person replaces it.
+      out[key] = aiCheck.blocked.has(DOCUMENT_TYPE_BY_KEY[key])
+        ? emptyFile()
+        : toUploadedFile(
+            apiDocuments.find((d) => d.documentType === DOCUMENT_TYPE_BY_KEY[key]),
+            previews[key]
+          );
     }
     return out;
-  }, [apiDocuments, previews]);
+  }, [apiDocuments, previews, aiCheck.blocked]);
 
   const uploadDocument = useCallback(async (key: PlayerDocumentKey, file: File | Blob, fileName: string, onProgress: (percent: number) => void) => {
     const current = registrationRef.current;
@@ -648,7 +661,10 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     } else if (document.documentType === 'PROFILE_PHOTO') {
       setNotice(null);
     }
-  }, []);
+    // The first AI rejection is shown (and the upload row asks for a replacement); a second one is silent.
+    const rejection = await aiCheck.review(document);
+    if (rejection) throw new Error(rejection);
+  }, [aiCheck]);
 
   const finishDocuments = useCallback(async () => {
     await run(async () => {
@@ -656,13 +672,13 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
       if (!current) throw new Error('no registration');
       const docs = await listDocuments(current.id);
       // Everything stored and checked goes to staff review; rejected ones were replaced by a new upload.
-      for (const d of docs.documents) if (d.state === 'UPLOADED') await submitDocument(d.id);
+      for (const d of docs.documents) if (d.state === 'UPLOADED') await submitDocument(d.id, { aiRejected: aiCheck.aiRejected(d.documentType) });
       if (current.status === 'DRAFT') await submitRegistration(current.id);
       const loaded = await hydrate(current.id);
       // (Everything rejected has just been replaced, so nothing sends the family back to this step.)
       goTo(stepFor(loaded.registration, loaded.consents) === 'complete' ? 'complete' : 'payment');
     });
-  }, [run, hydrate, goTo]);
+  }, [run, hydrate, goTo, aiCheck]);
 
   // ---------------------------------------------------------------- step 4: payment
   const startPayment = useCallback(async () => {

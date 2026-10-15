@@ -57,6 +57,7 @@ export function toUploadedFile(doc: ApiDocument | undefined, previewUrl?: string
     dataUrl: previewUrl,
     serverId: doc.id,
     mimeType: doc.mimeType,
+    aiRejected: doc.aiRejected || undefined,
     size: doc.sizeBytes ?? undefined,
     uploadedAt: doc.uploadedAt ? Date.parse(doc.uploadedAt) : undefined,
     review: 'not_submitted'

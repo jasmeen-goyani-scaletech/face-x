@@ -12,6 +12,8 @@ export interface UploadedFile {
   serverId?: string;
   /** The stored file's type (e.g. image/jpeg, application/pdf), as the server recorded it. */
   mimeType?: string;
+  /** The AI check turned the document down twice before it was sent for review; only the admin sees this. */
+  aiRejected?: boolean;
 }
 
 export function emptyFile(): UploadedFile {
@@ -68,6 +70,8 @@ export interface PlayerBasic {
   email: string;
   phone: string;
   dob: string; // yyyy-mm-dd
+  /** The bracket the player plays in; empty until chosen. Absent on drafts saved before it was asked for. */
+  ageDivision?: '' | 'U12' | 'U14' | 'U16';
 }
 
 /** The one place guardian details live (key kept as `emergency` so saved drafts still load). */
@@ -120,7 +124,7 @@ export function freshPlayerRegistration(invite: TeamInvite | null): PlayerRegist
     status: 'not_started',
     createdAt: null,
     completedAt: null,
-    basic: { firstName: '', lastName: '', email: '', phone: '', dob: '' },
+    basic: { firstName: '', lastName: '', email: '', phone: '', dob: '', ageDivision: '' },
     emergency: {
       guardianName: '',
       relationship: '',

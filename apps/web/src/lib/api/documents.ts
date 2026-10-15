@@ -14,8 +14,21 @@ export const requestUpload = (registrationId: string, input: RequestUploadInput)
 /** Step 3: the API checks the stored file's size and real file type. Only then is the document UPLOADED. */
 export const completeUpload = (documentId: string) => apiRequest<ApiDocument>(`/documents/${documentId}/complete`, { method: 'POST', body: {} });
 
-/** Sends an uploaded document to staff review. */
-export const submitDocument = (documentId: string) => apiRequest<ApiDocument>(`/documents/${documentId}/submit`, { method: 'POST', body: {} });
+/**
+ * Sends an uploaded document to staff review. `aiRejected` reports that the AI check turned the document down on the second
+ * attempt: the document goes through as normal, marked so the reviewer looks at it by eye.
+ */
+export const submitDocument = (documentId: string, options: { aiRejected?: boolean } = {}) =>
+  apiRequest<ApiDocument>(`/documents/${documentId}/submit`, { method: 'POST', body: options.aiRejected ? { aiRejected: true } : {} });
+
+/** The AI check of an uploaded document: whether it is accepted and, if not, the message to show. */
+export interface ApiExtractionVerdict {
+  accepted: boolean;
+  message: string | null;
+}
+
+export const checkDocument = (documentId: string) =>
+  apiRequest<{ verdict: ApiExtractionVerdict }>(`/documents/${documentId}/extract`, { method: 'POST', body: {} });
 
 /** A transfer that makes no progress for this long (the whole request, for a 10 MB file on a poor connection) is given up on and retried. */
 const UPLOAD_TIMEOUT_MS = 120_000;

@@ -51,6 +51,7 @@ export function createPlayerService(repository: PlayerRepository): PlayerService
         email: body.email ?? null,
         phone: body.phone ?? null,
         schoolId: body.schoolId ?? null,
+        ageDivision: body.ageDivision,
       };
 
       const playerId = body.forSelf

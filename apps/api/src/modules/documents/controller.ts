@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AppError } from '../../shared/errors/app-error';
 import { getRequestMeta } from '../../shared/http/request-meta';
 import { uuid } from '../../shared/validation/fields';
-import { requestUploadBodySchema, reviewBodySchema } from './schema';
+import { requestUploadBodySchema, reviewBodySchema, submitBodySchema } from './schema';
 import type { DocumentService } from './service';
 
 export interface DocumentController {
@@ -53,7 +53,11 @@ export function createDocumentController(service: DocumentService): DocumentCont
 
     submit: async (req, res) => {
       const id = uuid.parse(req.params.documentId);
-      res.json({ success: true, data: await service.submit(caller(req), id, getRequestMeta(req)) });
+      const body = submitBodySchema.parse(req.body ?? {});
+      res.json({
+        success: true,
+        data: await service.submit(caller(req), id, body, getRequestMeta(req)),
+      });
     },
 
     review: async (req, res) => {

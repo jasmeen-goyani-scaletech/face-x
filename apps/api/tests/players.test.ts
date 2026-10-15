@@ -58,6 +58,7 @@ describe('POST /players: a parent registers a child', () => {
       expect(text).not.toContain(leak);
     expect(Object.keys(res.body.data).sort()).toEqual(
       [
+        'ageDivision',
         'createdAt',
         'dateOfBirth',
         'email',
@@ -70,6 +71,24 @@ describe('POST /players: a parent registers a child', () => {
         'updatedAt',
       ].sort(),
     );
+  });
+
+  it('saves the age division and returns it; it can be changed until the registration is submitted', async () => {
+    const parent = await newParent();
+    const created = await as(app, parent.id).post(
+      '/api/v1/players',
+      childBody({ ageDivision: 'U14' }),
+    );
+    expect(created.status).toBe(201);
+    expect(created.body.data.ageDivision).toBe('U14');
+    const id = created.body.data.id as string;
+    const patched = await as(app, parent.id).patch(`/api/v1/players/${id}`, {
+      ageDivision: 'U16',
+    });
+    expect(patched.status).toBe(200);
+    expect(patched.body.data.ageDivision).toBe('U16');
+    const bad = await as(app, parent.id).patch(`/api/v1/players/${id}`, { ageDivision: 'U18' });
+    expect(bad.status).toBe(422);
   });
 
   it('uses the account email for the guardian record, never an email from the body', async () => {
@@ -181,7 +200,7 @@ describe('POST /players: a parent registers a child', () => {
 describe('POST /players: a player registers themself', () => {
   it('needs the PLAYER role and allows one player record per account', async () => {
     const player = await createUser(db, { roles: ['PLAYER'] });
-    const body = { firstName: 'Sam', lastName: 'Self', dateOfBirth: '2005-05-05', forSelf: true };
+    const body = { firstName: 'Sam', lastName: 'Self', dateOfBirth: '2005-05-05', ageDivision: 'U16', forSelf: true };
     const first = await as(app, player.id).post('/api/v1/players', body);
     expect(first.status).toBe(201);
     expect(first.body.data.guardians).toEqual([]);
@@ -201,6 +220,7 @@ describe('POST /players: a player registers themself', () => {
       firstName: 'S',
       lastName: 'T',
       dateOfBirth: '2005-05-05',
+      ageDivision: 'U16',
       forSelf: true,
       guardian: { relationship: 'Mother' },
     });
@@ -218,6 +238,9 @@ describe('input validation (422) and role gates', () => {
     ['impossible date', { dateOfBirth: '2014-02-30' }],
     ['future date', { dateOfBirth: '2999-01-01' }],
     ['ancient date', { dateOfBirth: '1800-01-01' }],
+    ['missing age division', { ageDivision: undefined }],
+    ['unknown age division', { ageDivision: 'U10' }],
+    ['lower-case age division', { ageDivision: 'u14' }],
     ['bad phone', { phone: '123' }],
     ['bad email', { email: 'nope' }],
     ['too-long name', { firstName: 'x'.repeat(81) }],

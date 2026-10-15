@@ -55,8 +55,9 @@ profile on record, so the reviewer can see a likely `NAME_MISMATCH` or `EXPIRED`
   (no `EXTRACTION_PROVIDER` or no storage), `503 STORAGE_UNAVAILABLE`.
 - **Provider:** `EXTRACTION_PROVIDER=openai` with `OPENAI_API_KEY` (see `apps/api/.env.example`). The Responses API is called with
   Structured Outputs (a strict JSON schema), `store: false`, no reasoning by default and at most 500 output tokens. JPEG/PNG go as
-  images; PDF and DOCX as files (OpenAI reads a PDF's text and page images, a DOCX's text only). Legacy `.doc` is not accepted at upload.
-- **Uploads:** documents may now be PDF, JPEG, PNG or DOCX, each up to `DOCUMENT_MAX_BYTES` (default 5 MiB, at most 10 MiB).
+  images; PDF and DOCX as files (OpenAI reads a PDF's text and page images, a DOCX's text only). WebP and legacy `.doc` are accepted at upload but not read: the extraction answers `UNSUPPORTED`.
+- **Uploads:** documents may be PDF, JPEG, PNG, WebP, DOC or DOCX, each up to `DOCUMENT_MAX_BYTES` (default and maximum 5 MiB).
+- **Verdict and AI-rejected flag:** the response also carries `verdict: { accepted, message }`. A document is rejected only when it is `UNREADABLE` or a compared field (name, date of birth, expiry) is a `MISMATCH`; `UNSUPPORTED`, `TIMEOUT`, `PROVIDER_ERROR`, `CLOSE` and `NOT_FOUND` never reject. The registration wizards show the message on the first rejection of a document type and let the second one through silently; `POST /documents/:id/submit` then takes `{ aiRejected: true }`, stored in `documents.ai_rejected` and surfaced to admins (`status=flagged` / `aiRejected=true` on the registrations list).
 
 ### Privacy
 

@@ -25,6 +25,8 @@ export interface ExtractionTarget {
 
 export interface ExtractionRepository {
   findTarget(documentId: string, userId: string): Promise<ExtractionTarget | null>;
+  /** Remembers whether the AI accepted this file. Only an unreviewed document is touched. */
+  setAiAccepted(documentId: string, accepted: boolean): Promise<void>;
 }
 
 interface Row {
@@ -44,6 +46,13 @@ interface Row {
 
 export function createExtractionRepository(db: Queryable): ExtractionRepository {
   return {
+    async setAiAccepted(documentId, accepted) {
+      await db.query(
+        "update public.documents set ai_accepted = $2 where id = $1 and status = 'PENDING'",
+        [documentId, accepted],
+      );
+    },
+
     async findTarget(documentId, userId) {
       // The registration is either a player's or a coach's/staff member's: whichever profile it points at is the record.
       const { rows } = await db.query<Row>(

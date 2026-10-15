@@ -76,6 +76,8 @@ export function listAdminRegistrations(eventId: string, q: ListAdminRegistration
       teamId: q.teamId,
       search: q.search?.trim() || undefined,
       documentsPending: q.documentsPending ? 'true' : undefined,
+      aiRejected: q.aiRejected ? 'true' : undefined,
+      eventAccessDisabled: q.eventAccessDisabled ? 'true' : undefined,
       page: q.page === undefined ? undefined : String(q.page),
       pageSize: q.pageSize === undefined ? undefined : String(q.pageSize)
     }

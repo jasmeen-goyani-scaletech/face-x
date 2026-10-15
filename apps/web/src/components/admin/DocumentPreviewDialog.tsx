@@ -60,6 +60,14 @@ export default function DocumentPreviewDialog({
       {!isImage && !isPdf && !(remote && (!remote.url || remote.error)) && (
         <p className="rounded-s bg-surface-2 px-4 py-10 text-center text-sm text-ink-soft">
           A preview isn&rsquo;t available for this file type. Only images and PDFs can be shown here.
+          {remote?.url && (
+            <>
+              {' '}
+              <a href={remote.url} download className="font-semibold text-primary underline">
+                Download the file
+              </a>
+            </>
+          )}
         </p>
       )}
     </Dialog>

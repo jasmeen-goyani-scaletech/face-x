@@ -597,8 +597,22 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         where.push(sql(params.length));
       };
       // Drafts are the family's private work in progress: an admin sees them only when asking for DRAFT explicitly.
-      if (query.status) add((n) => `r.status = $${n}`, query.status);
-      else where.push(`r.status <> 'DRAFT'`);
+      if (query.status && query.status !== 'FLAGGED') {
+        add((n) => `r.status = $${n}`, query.status);
+      } else where.push(`r.status <> 'DRAFT'`);
+      // A document counts by its newest version per type: one that was replaced is no longer a concern.
+      const newestDocs = `(select distinct on (x.document_type) x.* from public.documents x
+                              where x.registration_id = r.id
+                              order by x.document_type, x.created_at desc, x.id)`;
+      if (query.status === 'FLAGGED') {
+        where.push(
+          `exists (select 1 from ${newestDocs} nd where nd.ai_rejected or nd.status = 'REJECTED')`,
+        );
+      }
+      if (query.eventAccessDisabled === 'true') where.push('r.event_access_disabled');
+      if (query.aiRejected === 'true') {
+        where.push(`exists (select 1 from ${newestDocs} nd where nd.ai_rejected)`);
+      }
       if (query.teamId) add((n) => `r.team_id = $${n}`, query.teamId);
       if (query.search) {
         add(
@@ -640,6 +654,7 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         first_name: string;
         last_name: string;
         date_of_birth: string | null;
+        age_division: 'U12' | 'U14' | 'U16' | null;
         staff_id: string | null;
         staff_email: string | null;
         staff_phone: string | null;
@@ -651,24 +666,26 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         approved: string;
         rejected: string;
         not_submitted: string;
+        ai_rejected: string;
       }>(
         `select r.id, r.registration_number, r.status, r.submitted_at, r.created_at, r.event_access_disabled,
                 r.registrant_type, pl.id as player_id,
                 coalesce(pl.first_name, sp.first_name) as first_name,
                 coalesce(pl.last_name, sp.last_name) as last_name,
-                pl.date_of_birth::text as date_of_birth,
+                pl.date_of_birth::text as date_of_birth, pl.age_division,
                 sp.id as staff_id, sp.email as staff_email, sp.phone as staff_phone, sp.staff_role as staff_role,
                 t.id as team_id, t.name as team_name,
                 (select p.status from public.payments p where p.registration_id = r.id
                   order by (p.status = 'PAID') desc, p.created_at desc limit 1) as payment_status,
-                dc.in_review, dc.approved, dc.rejected, dc.not_submitted
+                dc.in_review, dc.approved, dc.rejected, dc.not_submitted, dc.ai_rejected
            ${from}
            left join lateral (
              select count(*) filter (where nd.submitted_at is not null and nd.status = 'PENDING'
                                        and r.status not in ('CANCELLED', 'REJECTED')) as in_review,
                     count(*) filter (where nd.status = 'APPROVED') as approved,
                     count(*) filter (where nd.status = 'REJECTED') as rejected,
-                    count(*) filter (where nd.uploaded_at is not null and nd.submitted_at is null) as not_submitted
+                    count(*) filter (where nd.uploaded_at is not null and nd.submitted_at is null) as not_submitted,
+                    count(*) filter (where nd.ai_rejected) as ai_rejected
                from (select distinct on (x.document_type) x.*
                        from public.documents x where x.registration_id = r.id
                       order by x.document_type, x.created_at desc, x.id) nd
@@ -692,6 +709,7 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
               approved: Number(r.approved),
               rejected: Number(r.rejected),
               notSubmitted: Number(r.not_submitted),
+              aiRejected: Number(r.ai_rejected),
             },
             eventAccessDisabled: r.event_access_disabled,
           };
@@ -704,6 +722,7 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
                   firstName: r.first_name,
                   lastName: r.last_name,
                   dateOfBirth: r.date_of_birth!,
+                  ageDivision: r.age_division,
                 },
                 paymentStatus: r.payment_status ?? 'NOT_STARTED',
               }

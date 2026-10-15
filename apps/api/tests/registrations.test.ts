@@ -331,6 +331,7 @@ describe('POST /registrations/:id/submit', () => {
       firstName: 'Ann',
       lastName: 'Adult',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     const reg = await as(app, adultParent.id).post(R, {

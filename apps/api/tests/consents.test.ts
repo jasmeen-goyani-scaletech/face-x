@@ -88,6 +88,7 @@ describe('reading consent status', () => {
       firstName: 'Ann',
       lastName: 'Adult',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     const reg = await as(app, player.id).post(R, {
@@ -255,6 +256,7 @@ describe('recording consent', () => {
       firstName: 'Tim',
       lastName: 'Teen',
       dateOfBirth: '2012-05-05',
+      ageDivision: 'U14',
       forSelf: true,
     });
     const reg = await as(app, minor.id).post(R, {
@@ -282,6 +284,7 @@ describe('recording consent', () => {
       firstName: 'Ann',
       lastName: 'Adult',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     const reg = await as(app, player.id).post(R, {

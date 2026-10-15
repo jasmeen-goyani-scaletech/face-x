@@ -18,6 +18,13 @@ export interface ExtractedFieldDto {
  * The result of one extraction. Nothing of it is stored: every call reads the document again. A provider failure is
  * still a result (status FAILED), since a document that cannot be read is something the reviewer checks by eye.
  */
+export interface ExtractionVerdictDto {
+  /** False only when the document could not be read or contradicts the profile on record (see verdictOf). */
+  accepted: boolean;
+  /** Fit to show the person who uploaded the document; null when accepted. */
+  message: string | null;
+}
+
 export interface ExtractionResultDto {
   documentId: string;
   documentType: DocumentType;
@@ -28,4 +35,5 @@ export interface ExtractionResultDto {
   derived: { age?: number };
   /** The model that answered; null when no model was reached. */
   model: string | null;
+  verdict: ExtractionVerdictDto;
 }

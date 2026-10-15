@@ -10,6 +10,7 @@ export const MSG = {
   email: 'Please enter a valid email address (e.g., name@example.com).',
   team: 'Please select a team to proceed.',
   role: 'Please select a role to proceed.',
+  ageDivisionRequired: 'Please select the player’s age division.',
   dobRequired: 'Please enter the player’s date of birth.',
   photo: 'Please capture or upload a face selfie to proceed.'
 } as const;

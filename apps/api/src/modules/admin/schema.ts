@@ -8,7 +8,17 @@ const pageSize = z.coerce.number().int().min(1).max(100).default(25);
 /** Strict, like every request schema: an unknown filter is a 422, never silently ignored. */
 export const listRegistrationsQuerySchema = z
   .object({
-    status: z.enum(REGISTRATION_STATUSES).optional(),
+    /** A registration status, or `flagged`: registrations with a document the AI check turned down or an admin rejected. */
+    status: z
+      .preprocess(
+        (v) => (typeof v === 'string' ? v.toUpperCase() : v),
+        z.enum([...REGISTRATION_STATUSES, 'FLAGGED']),
+      )
+      .optional(),
+    /** `true`: only registrations with a document the AI check turned down (the family was not told). */
+    aiRejected: z.enum(['true', 'false']).optional(),
+    /** `true`: only registrations whose event-day access an admin switched off. */
+    eventAccessDisabled: z.enum(['true', 'false']).optional(),
     teamId: uuid.optional(),
     /** Player name or registration number. */
     search: z.string().trim().min(1).max(100).optional(),

@@ -147,6 +147,7 @@ describe('extracting fields from a document', () => {
       },
       derived: { age: 15 },
       model: 'fake-model-1',
+      verdict: { accepted: true, message: null },
     });
     // The provider got the sniffed type and the field list for the type, nothing chosen by the client.
     expect(fake.calls.length).toBe(before + 1);
@@ -179,6 +180,10 @@ describe('extracting fields from a document', () => {
     });
     expect(res.body.data.derived).toEqual({ age: 15 });
     expect(fake.calls.at(-1)!.mimeType).toBe('application/pdf');
+    // A name and a date of birth that contradict the profile are a rejection, with a message the family can act on.
+    expect(res.body.data.verdict.accepted).toBe(false);
+    expect(res.body.data.verdict.message).toContain('the name on it does not match');
+    expect(res.body.data.verdict.message).toContain('the date of birth on it does not match');
   });
 
   it("checks a coach's certificate by name and expiry against the event date", async () => {
@@ -291,7 +296,9 @@ describe('when extraction fails', () => {
   };
 
   it('reports an unreadable document as a failed result, not an error', async () => {
-    expect((await failed(markedFile(JPEG, 'UNREADABLE'))).failureReason).toBe('UNREADABLE');
+    const data = await failed(markedFile(JPEG, 'UNREADABLE'));
+    expect(data.failureReason).toBe('UNREADABLE');
+    expect(data.verdict).toEqual({ accepted: false, message: expect.stringContaining('could not read') });
   });
 
   it('treats a document from which nothing could be read as unreadable', async () => {
@@ -300,7 +307,10 @@ describe('when extraction fails', () => {
   });
 
   it('reports a provider that throws as PROVIDER_ERROR', async () => {
-    expect((await failed(markedFile(JPEG, 'EXPLODE'))).failureReason).toBe('PROVIDER_ERROR');
+    const data = await failed(markedFile(JPEG, 'EXPLODE'));
+    expect(data.failureReason).toBe('PROVIDER_ERROR');
+    // A check that could not run is not the family's mistake: it never blocks them.
+    expect(data.verdict).toEqual({ accepted: true, message: null });
   });
 
   it('stops a slow provider at the deadline', async () => {
@@ -347,4 +357,61 @@ it('never logs extracted values or provider error text', async () => {
   expect(out).not.toContain('2011-08-29');
   expect(out).not.toContain('Mateialona');
   expect(out).not.toContain('sk-proj-ABCDEFGHIJKLMNOPQRSTUV');
+});
+
+describe('approval by the AI check', () => {
+  const GOOD = { fullName: 'Casey Coach', expiryDate: '2027-06-01' };
+  const COACH_DOCS = ['FIRST_AID_CPR', 'YALF_TACKLE', 'BACKGROUND_CHECK'] as const;
+
+  const statusOf = async (id: string) =>
+    (
+      await db.query<{ status: string; ai_accepted: boolean }>(
+        'select status, ai_accepted from public.documents where id = $1',
+        [id],
+      )
+    ).rows[0]!;
+
+  /** Uploads, AI-checks (as the owner) and submits one coach document. */
+  async function checkedAndSubmitted(o: Owner, documentType: string, fields: Record<string, string>) {
+    const id = await uploaded(o, fieldsFile(fields), { documentType });
+    const res = await extract(o.ownerId, id);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const sub = await as(app, o.ownerId).post(`${D}/${id}/submit`, {});
+    expect(sub.status, JSON.stringify(sub.body)).toBe(200);
+    return id;
+  }
+
+  it('approves the documents, with no human reviewer, once every AI-readable required document was accepted', async () => {
+    const c = await coach();
+    const ids: string[] = [];
+    for (const t of COACH_DOCS) ids.push(await checkedAndSubmitted(c, t, GOOD));
+    for (const id of ids) expect(await statusOf(id)).toEqual({ status: 'APPROVED', ai_accepted: true });
+    const reviews = await db.query<{ reviewer_id: string | null; automated: boolean }>(
+      'select reviewer_id, automated from public.document_reviews where document_id = any($1)',
+      [ids],
+    );
+    expect(reviews.rows).toHaveLength(3);
+    expect(reviews.rows.every((r) => r.reviewer_id === null && r.automated)).toBe(true);
+  });
+
+  it('approves nothing while one required document was rejected by the AI', async () => {
+    const c = await coach();
+    const ids: string[] = [];
+    ids.push(await checkedAndSubmitted(c, 'FIRST_AID_CPR', GOOD));
+    ids.push(await checkedAndSubmitted(c, 'YALF_TACKLE', { ...GOOD, expiryDate: '2020-01-01' }));
+    ids.push(await checkedAndSubmitted(c, 'BACKGROUND_CHECK', GOOD));
+    for (const id of ids) expect((await statusOf(id)).status).toBe('PENDING');
+    expect((await statusOf(ids[1]!)).ai_accepted).toBe(false);
+  });
+
+  it('does not trust the client: a document the API never saw accepted is not approved', async () => {
+    const c = await coach();
+    const ids: string[] = [];
+    ids.push(await checkedAndSubmitted(c, 'FIRST_AID_CPR', GOOD));
+    ids.push(await checkedAndSubmitted(c, 'YALF_TACKLE', GOOD));
+    const unchecked = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    const sub = await as(app, c.ownerId).post(`${D}/${unchecked}/submit`, {});
+    expect(sub.status).toBe(200);
+    for (const id of [...ids, unchecked]) expect((await statusOf(id)).status).toBe('PENDING');
+  });
 });

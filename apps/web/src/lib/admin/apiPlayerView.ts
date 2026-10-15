@@ -142,7 +142,7 @@ export function overviewSections(reg: ApiRegistration, payment: ApiPaymentSummar
         { label: 'Team', value: reg.team ? `${reg.team.name} · ${reg.team.club}` : 'No team assigned' },
         { label: 'Role', value: 'Player' },
         { label: 'Date of birth', value: formatDate(reg.player.dateOfBirth) },
-        { label: 'Age · Division', value: `${age ?? '—'} · ${reg.team?.division || '—'}` },
+        { label: 'Age · Division', value: `${age ?? '—'} · ${reg.player.ageDivision ?? reg.team?.division ?? '—'}` },
         { label: 'Mobile', value: reg.player.phone ?? '—' },
         { label: 'Email', value: reg.player.email ?? '—' },
         { label: 'Submitted', value: reg.submittedAt ? formatDateTime(Date.parse(reg.submittedAt)) : 'Not submitted yet' },

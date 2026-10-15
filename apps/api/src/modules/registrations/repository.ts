@@ -9,6 +9,7 @@ import {
   type StaffRole,
 } from '../staff';
 import type { RegistrantType, RegistrationStatus } from './transitions';
+import type { AgeDivision } from '../players/types';
 import type { RegistrationDto, RegistrationSummary, StatusHistoryEntry } from './types';
 
 export interface EventRow {
@@ -140,6 +141,7 @@ interface ViewRow {
   player_email: string | null;
   player_phone: string | null;
   player_school_id: string | null;
+  player_age_division: AgeDivision | null;
   staff_id: string | null;
   staff_first_name: string | null;
   staff_last_name: string | null;
@@ -316,7 +318,7 @@ function build(q: Queryable, run: RegistrationRepository['transaction']): Regist
                 t.id as team_id, t.name as team_name, t.club as team_club, t.division as team_division,
                 pl.id as player_id, pl.first_name as player_first_name, pl.last_name as player_last_name,
                 pl.date_of_birth::text as player_dob, pl.email as player_email, pl.phone as player_phone,
-                pl.school_id as player_school_id,
+                pl.school_id as player_school_id, pl.age_division as player_age_division,
                 sp.id as staff_id, sp.first_name as staff_first_name, sp.last_name as staff_last_name,
                 sp.email as staff_email, sp.phone as staff_phone, sp.staff_role as staff_role
            from public.registrations r
@@ -363,6 +365,7 @@ function build(q: Queryable, run: RegistrationRepository['transaction']): Regist
                 email: v.player_email,
                 phone: v.player_phone,
                 schoolId: v.player_school_id,
+                ageDivision: v.player_age_division,
               },
               guardians: await listGuardians(q, v.player_id!),
             }

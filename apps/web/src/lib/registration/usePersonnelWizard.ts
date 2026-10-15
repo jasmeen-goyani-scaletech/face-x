@@ -26,7 +26,7 @@ import type {
   ApiStaffProfile
 } from '@/lib/api/types';
 import { useLocalStorage } from '@/lib/storage';
-import type { CoachRegistration, StaffRegistration, TeamInvite, UploadedFile } from '@/lib/types';
+import { emptyFile, type CoachRegistration, type StaffRegistration, type TeamInvite, type UploadedFile } from '@/lib/types';
 import { newestPerType, toUploadedFile } from './documentMap';
 import {
   AB506_CONSENT,
@@ -40,6 +40,7 @@ import {
   type StaffDocKey
 } from './personnel';
 import { uploadRegistrationDocument } from './uploads';
+import { useAiDocumentCheck } from './useAiDocumentCheck';
 
 export type PersonnelPhase = 'loading' | 'ready' | 'error';
 export type PersonnelStep = 'basic' | 'certificates' | 'status';
@@ -162,17 +163,21 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
   );
 
   // ---------------------------------------------------------------- documents as the form shows them
+  const aiCheck = useAiDocumentCheck();
   const files = useMemo(() => {
     const newest = newestPerType(apiDocuments);
     const out = {} as Record<K, UploadedFile>;
     for (const key of keys) {
-      out[key] = toUploadedFile(
-        newest.find((d) => d.documentType === config.documentTypes[key]),
-        previews[key]
-      );
+      // A document the AI check turned down the first time is held back until the person replaces it.
+      out[key] = aiCheck.blocked.has(config.documentTypes[key])
+        ? emptyFile()
+        : toUploadedFile(
+            newest.find((d) => d.documentType === config.documentTypes[key]),
+            previews[key]
+          );
     }
     return out;
-  }, [apiDocuments, previews, keys, config]);
+  }, [apiDocuments, previews, keys, config, aiCheck.blocked]);
 
   // What the server decides, written into the browser copy. Computed on every render so the screen never shows a stale copy
   // from an earlier visit while the effect below persists it (no previews: they cannot outlive the page).
@@ -389,8 +394,11 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
         return { ...prev, [key]: url };
       });
       setApiDocuments((prev) => [...prev.filter((d) => d.documentType !== document.documentType), document]);
+      // The first AI rejection is shown (and the upload row asks for a replacement); a second one is silent.
+      const rejection = await aiCheck.review(document);
+      if (rejection) throw new Error(rejection);
     },
-    [config]
+    [config, aiCheck]
   );
 
   const captureLivePhoto = useCallback(
@@ -427,7 +435,7 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
 
         // Everything stored and checked goes to staff review; a rejected document was replaced by a new upload.
         const docs = await listDocuments(current.id);
-        for (const d of docs.documents) if (d.state === 'UPLOADED') await submitDocument(d.id);
+        for (const d of docs.documents) if (d.state === 'UPLOADED') await submitDocument(d.id, { aiRejected: aiCheck.aiRejected(d.documentType) });
         if (current.status === 'DRAFT') await submitPersonnelRegistration(current.id);
         // Moves the registration into review (or further) now that its documents and consent are in.
         await evaluateReadiness(current.id);
@@ -435,7 +443,7 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
         goTo('status');
         return true;
       }),
-    [run, hydrate, goTo]
+    [run, hydrate, goTo, aiCheck]
   );
 
   return {

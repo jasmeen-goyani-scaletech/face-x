@@ -8,9 +8,11 @@ export type SniffedType =
   | 'image/jpeg'
   | 'image/png'
   | 'image/webp'
-  | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  | 'application/msword';
 
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const DOC = 'application/msword';
 
 /** Bytes needed to tell every supported type apart. */
 export const SNIFF_BYTES = 12;
@@ -20,8 +22,8 @@ const startsWith = (bytes: Uint8Array, signature: readonly number[], offset = 0)
 
 /**
  * `declared` is the type the client claimed. A DOCX is a ZIP archive and its first bytes cannot tell it from any other
- * ZIP, so a ZIP header counts as DOCX only when DOCX was declared, and is `null` otherwise (an arbitrary .zip, or a
- * legacy .doc, which is not a ZIP at all, is never accepted).
+ * ZIP, so a ZIP header counts as DOCX only when DOCX was declared, and is `null` otherwise (an arbitrary .zip is never
+ * accepted).
  */
 export function sniffContentType(bytes: Uint8Array, declared?: string): SniffedType | null {
   if (startsWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d])) return 'application/pdf'; // %PDF-
@@ -34,5 +36,9 @@ export function sniffContentType(bytes: Uint8Array, declared?: string): SniffedT
     return 'image/webp';
   }
   if (declared === DOCX && startsWith(bytes, [0x50, 0x4b, 0x03, 0x04])) return DOCX; // PK\x03\x04
+  // An OLE2 compound file: .xls and .ppt share the header, so it counts as .doc only when .doc was declared.
+  if (declared === DOC && startsWith(bytes, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) {
+    return DOC;
+  }
   return null;
 }

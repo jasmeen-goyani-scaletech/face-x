@@ -90,6 +90,8 @@ export interface ApiPlayer {
   email: string | null;
   phone: string | null;
   schoolId: string | null;
+  /** Null only for a player registered before the division was asked for. */
+  ageDivision: ApiAgeDivision | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -98,10 +100,15 @@ export interface ApiPlayerDetail extends ApiPlayer {
   guardians: ApiGuardian[];
 }
 
+/** The brackets a player may be registered in. */
+export const AGE_DIVISIONS = ['U12', 'U14', 'U16'] as const;
+export type ApiAgeDivision = (typeof AGE_DIVISIONS)[number];
+
 export interface CreatePlayerInput {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  ageDivision: ApiAgeDivision;
   email?: string;
   phone?: string;
   /** true: the signed-in account IS the player (PLAYER role). Otherwise a child registered by a PARENT. */
@@ -113,6 +120,7 @@ export type UpdatePlayerInput = Partial<{
   firstName: string;
   lastName: string;
   dateOfBirth: string;
+  ageDivision: ApiAgeDivision;
   email: string | null;
   phone: string | null;
 }>;
@@ -187,6 +195,7 @@ export interface ApiRegistration {
     email: string | null;
     phone: string | null;
     schoolId: string | null;
+    ageDivision: ApiAgeDivision | null;
   };
   guardians: ApiGuardian[];
 }
@@ -278,6 +287,8 @@ export interface ApiDocument {
   state: ApiDocumentState;
   uploadedAt: string | null;
   submittedAt: string | null;
+  /** The AI check turned this document down twice and the family sent it on anyway. Only the reviewer is told. */
+  aiRejected: boolean;
   review: {
     decision: 'APPROVED' | 'REJECTED';
     reasonCode: 'UNREADABLE' | 'WRONG_TYPE' | 'NAME_MISMATCH' | 'EXPIRED' | 'CUSTOM' | null;
@@ -529,13 +540,13 @@ interface ApiAdminRowBase {
   submittedAt: string | null;
   createdAt: string;
   team: { id: string; name: string } | null;
-  documents: { inReview: number; approved: number; rejected: number; notSubmitted: number };
+  documents: { inReview: number; approved: number; rejected: number; notSubmitted: number; aiRejected: number };
   eventAccessDisabled: boolean;
 }
 
 export interface ApiAdminPlayerRow extends ApiAdminRowBase {
   registrantType: 'PLAYER';
-  player: { id: string; firstName: string; lastName: string; dateOfBirth: string };
+  player: { id: string; firstName: string; lastName: string; dateOfBirth: string; ageDivision: ApiAgeDivision | null };
   paymentStatus: 'NOT_STARTED' | ApiPaymentStatus;
 }
 
@@ -623,7 +634,12 @@ export interface ApiEventSummary {
 export type ApiRejectionReasonCode = 'UNREADABLE' | 'WRONG_TYPE' | 'NAME_MISMATCH' | 'EXPIRED' | 'CUSTOM';
 
 export interface ListAdminRegistrationsQuery {
-  status?: ApiRegistrationStatus;
+  /** A registration status, or FLAGGED: a document the AI check turned down or an admin rejected. */
+  status?: ApiRegistrationStatus | 'FLAGGED';
+  /** Only registrations with a document the AI check turned down. */
+  aiRejected?: boolean;
+  /** Only registrations whose event-day access an admin switched off. */
+  eventAccessDisabled?: boolean;
   teamId?: string;
   search?: string;
   documentsPending?: boolean;

@@ -16,6 +16,7 @@ import { EXTRACTION_FIELDS } from './fields';
 import { compareWithProfile } from './matching';
 import type { ExtractionRepository } from './repository';
 import type { ExtractionResultDto } from './types';
+import { verdictOf } from './verdict';
 
 /** The provider and its limits. Absent (or no storage reader): extraction answers 503. */
 export interface DocumentExtractionConfig {
@@ -116,10 +117,17 @@ export function createExtractionService({
             fields: {},
             derived: {},
             model: outcome.ok ? outcome.model : null,
+            verdict: verdictOf(failureReason, {}),
           };
         }
         const compared = compareWithProfile(specs, outcome.fields, target.profile);
-        return { ...base, status: 'SUCCEEDED', ...compared, model: outcome.model };
+        return {
+          ...base,
+          status: 'SUCCEEDED',
+          ...compared,
+          model: outcome.model,
+          verdict: verdictOf(undefined, compared.fields),
+        };
       };
 
       // Read outside any transaction: a slow provider call must not hold a database connection.
@@ -133,6 +141,16 @@ export function createExtractionService({
       if (!stored.exists) {
         throw AppError.conflict('UPLOAD_NOT_COMPLETE', 'The file is not available');
       }
+      // The owner's own check is what the API remembers: a document the AI read and accepted may be approved without an admin
+      // (see the documents service). Anything else, including a check that could not run, clears it.
+      const record = async (result: ExtractionResultDto): Promise<ExtractionResultDto> => {
+        if (target.isOwner) {
+          await repository
+            .setAiAccepted(documentId, result.status === 'SUCCEEDED' && result.verdict.accepted)
+            .catch((e: unknown) => logger.error({ err: safeCause(e), documentId }, 'Could not record the AI check'));
+        }
+        return result;
+      };
       // Too large (the limit was lowered after upload) or not a type the provider reads: shown as a failed read.
       const mimeType = stored.tooLarge ? null : sniffContentType(stored.bytes, target.mimeType);
       if (
@@ -140,7 +158,7 @@ export function createExtractionService({
         !mimeType ||
         !(EXTRACTABLE_MIME_TYPES as readonly string[]).includes(mimeType)
       ) {
-        return finish({ ok: false, reason: 'UNSUPPORTED' });
+        return record(finish({ ok: false, reason: 'UNSUPPORTED' }));
       }
 
       const outcome = await withDeadline(
@@ -159,7 +177,7 @@ export function createExtractionService({
         logger.error({ err: safeCause(e), documentId }, 'Document extractor threw');
         return { ok: false, reason: 'PROVIDER_ERROR' };
       });
-      return finish(outcome);
+      return record(finish(outcome));
     },
   };
 }

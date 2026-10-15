@@ -114,13 +114,13 @@ const envSchema = z
       .optional()
       .or(z.literal('').transform(() => undefined)),
     EXTRACTION_TIMEOUT_MS: optionalNumber(z.number().int().min(5_000).max(60_000)),
-    // Largest registration document (PDF, image or DOCX) a family may upload, in bytes. Default 5 MiB, at most 10 MiB.
+    // Largest registration document (PDF, image or DOCX) a family may upload, in bytes. Default and maximum 5 MiB.
     DOCUMENT_MAX_BYTES: optionalNumber(
       z
         .number()
         .int()
         .min(1024 * 1024)
-        .max(10 * 1024 * 1024),
+        .max(5 * 1024 * 1024),
     ),
     // Sign-up and sign-in limits per client address. A venue's Wi-Fi puts many families behind one address, so these are
     // generous by default; the per-account login limit (5 failures per 15 minutes) is what stops password guessing.

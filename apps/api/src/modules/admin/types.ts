@@ -44,6 +44,8 @@ export interface AdminDocumentCounts {
   rejected: number;
   /** Uploaded by the registrant but not yet sent for review. */
   notSubmitted: number;
+  /** Documents the AI check turned down twice before the registrant sent them on: look at these by eye. */
+  aiRejected: number;
 }
 
 /** What an admin sees for one player registration in a list. Documents are counted by their newest version per type. */
@@ -54,7 +56,13 @@ export interface AdminPlayerRow {
   status: RegistrationStatus;
   submittedAt: string | null;
   createdAt: string;
-  player: { id: string; firstName: string; lastName: string; dateOfBirth: string };
+  player: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string;
+    ageDivision: 'U12' | 'U14' | 'U16' | null;
+  };
   team: { id: string; name: string } | null;
   /** NOT_STARTED when no payment attempt exists. */
   paymentStatus: 'NOT_STARTED' | 'PAYMENT_PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED';
