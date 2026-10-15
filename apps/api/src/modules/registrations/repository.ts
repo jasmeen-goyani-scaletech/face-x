@@ -52,6 +52,15 @@ export interface RegistrationRepository {
   /** Share-locks the event so it cannot be changed under a registration being created or submitted. */
   lockEvent(eventId: string): Promise<EventRow | null>;
   findTeam(teamId: string): Promise<TeamRow | null>;
+  /**
+   * How full a team is for one kind of registrant. With `lock` the team row is locked first, so concurrent submissions to the
+   * same team take turns and each one counts the places the previous ones took. `max` null = unlimited.
+   */
+  teamCapacity(
+    teamId: string,
+    registrantType: RegistrantType,
+    lock: boolean,
+  ): Promise<{ teamName: string; max: number | null; used: number } | null>;
   isPlayerOwner(playerId: string, userId: string): Promise<boolean>;
   /** The caller's own staff profile (its type decides COACH or STAFF), or null if it is not theirs. */
   findOwnedStaffProfile(
@@ -189,6 +198,24 @@ function build(q: Queryable, run: RegistrationRepository['transaction']): Regist
       );
       const t = rows[0];
       return t ? { id: t.id, eventId: t.event_id, status: t.status } : null;
+    },
+
+    async teamCapacity(teamId, registrantType, lock) {
+      // Two statements on purpose: the count must be taken after the lock is held, not before waiting for it.
+      const { rows } = await q.query<{ name: string; max: number | null }>(
+        `select name, case $2 when 'PLAYER' then max_players when 'COACH' then max_coaches else max_staff end as max
+           from public.teams where id = $1 ${lock ? 'for update' : ''}`,
+        [teamId, registrantType],
+      );
+      const team = rows[0];
+      if (!team) return null;
+      if (team.max === null) return { teamName: team.name, max: null, used: 0 };
+      const { rows: counted } = await q.query<{ n: string }>(
+        `select count(*) as n from public.registrations
+          where team_id = $1 and registrant_type = $2 and status not in ('DRAFT', 'CANCELLED', 'REJECTED')`,
+        [teamId, registrantType],
+      );
+      return { teamName: team.name, max: team.max, used: Number(counted[0]?.n ?? 0) };
     },
 
     async isPlayerOwner(playerId, userId) {

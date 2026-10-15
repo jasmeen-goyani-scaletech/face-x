@@ -515,6 +515,37 @@ export interface ApiAdminTeam {
   inviteCode: string;
   status: ApiTeamStatus;
   registrations: { players: number; coaches: number; staff: number };
+  /** Registration limits per kind; `max` null = unlimited. `used` counts registrations holding a place (not draft, cancelled or rejected). */
+  limits: { players: ApiTeamLimit; coaches: ApiTeamLimit; staff: ApiTeamLimit };
+}
+
+export interface ApiTeamLimit {
+  max: number | null;
+  used: number;
+}
+
+/** A team a coach or staff member was assigned to by an admin. */
+export interface ApiTeamAssignment {
+  teamId: string;
+  name: string;
+  club: string;
+  division: string;
+  status: ApiTeamStatus;
+  assignedAt: string;
+}
+
+/** A team the signed-in coach / staff member may work with (GET /me/teams). */
+export interface ApiAccessibleTeam {
+  id: string;
+  name: string;
+  club: string;
+  division: string;
+  status: ApiTeamStatus;
+  event: { id: string; name: string; startsAt: string; endsAt: string; timezone: string };
+  via: 'ADMIN' | 'COACH' | 'STAFF';
+  limits: { players: ApiTeamLimit; coaches: ApiTeamLimit; staff: ApiTeamLimit };
+  /** Null for staff: only coaches and admins see how people join the team. */
+  inviteCode: string | null;
 }
 
 export interface CreateTeamInput {
@@ -523,7 +554,10 @@ export interface CreateTeamInput {
   division: string;
 }
 
-export type UpdateTeamInput = Partial<CreateTeamInput & { status: ApiTeamStatus }>;
+/** A positive whole number sets a registration limit, null removes it (unlimited), leaving it out keeps it as it is. */
+export type UpdateTeamInput = Partial<
+  CreateTeamInput & { status: ApiTeamStatus; maxPlayers: number | null; maxCoaches: number | null; maxStaff: number | null }
+>;
 
 export interface ApiPage<T> {
   items: T[];

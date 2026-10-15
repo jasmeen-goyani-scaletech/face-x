@@ -10,6 +10,7 @@ import type {
   ApiPage,
   ApiRegistrationStatus,
   ApiRosterEntry,
+  ApiTeamAssignment,
   CreateEventInput,
   CreateTeamInput,
   ListAdminRegistrationsQuery,
@@ -119,3 +120,13 @@ export const rejectRegistration = (registrationId: string, reason: string) =>
     `/admin/registrations/${registrationId}/reject`,
     { method: 'POST', body: { reason } }
   );
+
+/** The teams of a coach or staff member (named by their registration id). Admin only. */
+export const listTeamAssignments = (registrationId: string) =>
+  apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams`);
+
+export const addTeamAssignment = (registrationId: string, teamId: string) =>
+  apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams`, { method: 'POST', body: { teamId } });
+
+export const removeTeamAssignment = (registrationId: string, teamId: string) =>
+  apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams/${teamId}`, { method: 'DELETE' });

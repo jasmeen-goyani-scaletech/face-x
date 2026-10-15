@@ -2,6 +2,8 @@
 
 import { Suspense } from 'react';
 import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import AdminCollapsibleSidenav from '@/components/admin/AdminCollapsibleSidenav';
 import OfflineRosterSyncEngine from '@/components/admin/OfflineRosterSyncEngine';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -11,12 +13,12 @@ import { useAdminSidenav } from '@/lib/useAdminSidenav';
 import { ToastProvider } from '@/components/ui/Toast';
 
 /** The admin chrome: side navigation and the content column that follows it. */
-function AdminShell({ children }: { children: React.ReactNode }) {
+function AdminShell({ children, personnelOnly = false }: { children: React.ReactNode; personnelOnly?: boolean }) {
   const { collapsed, toggle: toggleSidenav } = useAdminSidenav();
   return (
     <ToastProvider>
       <div className="min-h-screen">
-        <AdminCollapsibleSidenav collapsed={collapsed} onToggle={toggleSidenav} />
+        <AdminCollapsibleSidenav collapsed={collapsed} onToggle={toggleSidenav} personnelOnly={personnelOnly} />
         {/* The rail is fixed from md up, so the content column makes room for it and follows it as it collapses. */}
         <div
           className={[
@@ -34,15 +36,29 @@ function AdminShell({ children }: { children: React.ReactNode }) {
           </main>
         </div>
       </div>
-      <OfflineRosterSyncEngine />
+      {/* The offline event-day roster is an admin tool; coaches and staff do not load it. */}
+      {!personnelOnly && <OfflineRosterSyncEngine />}
     </ToastProvider>
   );
+}
+
+/** Coaches and staff reach the team-scoped screens only; every other /admin page sends them to their teams. */
+function PersonnelShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const allowed = !!pathname && (pathname === '/admin/my-teams' || pathname.startsWith('/admin/my-teams/'));
+  useEffect(() => {
+    if (!allowed) router.replace('/admin/my-teams');
+  }, [allowed, router]);
+  if (!allowed) return <div className="min-h-screen bg-surface" />;
+  return <AdminShell personnelOnly>{children}</AdminShell>;
 }
 
 /** A signed-in account that isn't an admin gets a clear answer instead of a screen full of access errors. */
 function AdminRoleGate({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   if (user?.roles.includes('ADMIN')) return <AdminShell>{children}</AdminShell>;
+  if (user?.roles.some((r) => r === 'COACH' || r === 'STAFF')) return <PersonnelShell>{children}</PersonnelShell>;
   return (
     <div className="min-h-screen bg-surface-2 flex items-center justify-center px-5">
       <Card className="w-full max-w-[420px] text-center">

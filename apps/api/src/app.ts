@@ -18,6 +18,7 @@ import type { ObjectReader } from './infrastructure/storage/object-reader';
 import type { AuthRateLimitConfig } from './middleware/rate-limit';
 import { createAuthModule, createAuthRepository } from './modules/auth';
 import { createCoachTeamModule } from './modules/coachteam';
+import { createTeamAccessModule } from './modules/teamaccess';
 import { createConsentsModule } from './modules/consents';
 import { createDocumentsModule } from './modules/documents';
 import { createFaceModule, createFaceServiceFor, type FaceRecognitionConfig } from './modules/face';
@@ -242,6 +243,7 @@ export function createApp({
     }),
   );
   app.use('/api/v1', createCoachTeamModule(db, auth.middleware));
+  app.use('/api/v1', createTeamAccessModule(db, auth.middleware));
   app.use(
     '/api/v1',
     createConsentsModule(db, auth.middleware, readiness.trigger, {

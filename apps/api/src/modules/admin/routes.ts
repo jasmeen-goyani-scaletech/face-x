@@ -67,6 +67,25 @@ export function createAdminRouter(controller: AdminController, mw: AdminRouteMid
     mw.requireAdminRole,
     controller.setEventAccess,
   );
+  // A coach's or staff member's teams (the registration names the person). Admin only.
+  router.get(
+    '/admin/registrations/:registrationId/teams',
+    mw.requireAuth,
+    mw.requireAdminRole,
+    controller.listTeamAssignments,
+  );
+  router.post(
+    '/admin/registrations/:registrationId/teams',
+    mw.requireAuth,
+    mw.requireAdminRole,
+    controller.addTeamAssignment,
+  );
+  router.delete(
+    '/admin/registrations/:registrationId/teams/:teamId',
+    mw.requireAuth,
+    mw.requireAdminRole,
+    controller.removeTeamAssignment,
+  );
   router.post(
     '/admin/registrations/:registrationId/reject',
     mw.requireAuth,

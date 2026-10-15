@@ -35,6 +35,7 @@ import AdminEntityDetailsLayout from './AdminEntityDetailsLayout';
 import DocumentReviewRow from './DocumentReviewRow';
 import DocumentReviewTable from './DocumentReviewTable';
 import DocumentsPanel from './DocumentsPanel';
+import TeamAssignmentsCard from './TeamAssignmentsCard';
 
 const KIND = {
   PLAYER: { label: 'Player', plural: 'Players', path: '/admin/players' },
@@ -291,6 +292,7 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
   );
 
   return (
+    <>
     <AdminEntityDetailsLayout
       backLabel={copy.plural}
       onBack={() => router.push(copy.path)}
@@ -312,5 +314,8 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
       activity={view.activity}
       activityEmptyMessage="No activity recorded yet."
     />
+    {/* Coaches and staff work with the teams an admin assigns; a player belongs to the one team they registered for. */}
+    {kind !== 'PLAYER' && <TeamAssignmentsCard registrationId={id} eventId={reg.event.id} label={copy.label} />}
+    </>
   );
 }

@@ -26,6 +26,26 @@ export interface AdminTeam {
   status: 'ACTIVE' | 'DISABLED';
   /** Registrations (any status except draft / cancelled) attached to the team, by kind. */
   registrations: { players: number; coaches: number; staff: number };
+  /**
+   * Registration limits per kind (null max = unlimited, the default). `used` counts the registrations that hold a place:
+   * every status except draft, cancelled and rejected. A limit below `used` blocks new registrations only.
+   */
+  limits: { players: TeamLimit; coaches: TeamLimit; staff: TeamLimit };
+}
+
+export interface TeamLimit {
+  max: number | null;
+  used: number;
+}
+
+/** A team a coach or staff member has been assigned to. */
+export interface TeamAssignment {
+  teamId: string;
+  name: string;
+  club: string;
+  division: string;
+  status: 'ACTIVE' | 'DISABLED';
+  assignedAt: string;
 }
 
 export interface Page<T> {

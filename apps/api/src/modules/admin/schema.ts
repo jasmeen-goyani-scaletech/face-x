@@ -161,9 +161,16 @@ export const updateTeamBodySchema = z
     club: z.string().trim().max(80).optional(),
     division: z.string().trim().min(1, 'is required').max(20).optional(),
     status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+    /** A positive whole number sets the limit; null removes it (unlimited). Omit to leave it as it is. */
+    maxPlayers: z.number().int().min(1).max(100_000).nullable().optional(),
+    maxCoaches: z.number().int().min(1).max(100_000).nullable().optional(),
+    maxStaff: z.number().int().min(1).max(100_000).nullable().optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0, 'at least one field is required');
+
+export const assignTeamBodySchema = z.object({ teamId: uuid }).strict();
+export type AssignTeamBody = z.infer<typeof assignTeamBodySchema>;
 
 export type SummaryQuery = z.infer<typeof summaryQuerySchema>;
 export type CreateEventBody = z.infer<typeof createEventBodySchema>;

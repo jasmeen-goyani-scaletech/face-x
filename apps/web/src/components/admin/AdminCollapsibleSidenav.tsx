@@ -15,6 +15,9 @@ const NAV = [
   { href: '/admin/event-day', label: 'Event Day', icon: CalendarIcon }
 ];
 
+/** What a coach or staff member sees: only the teams they were assigned to. */
+const PERSONNEL_NAV = [{ href: '/admin/my-teams', label: 'My Teams', icon: UsersIcon }];
+
 async function signOut() {
   // Signing out ends the real session (the server revokes the refresh token) before leaving.
   try {
@@ -49,7 +52,8 @@ const itemBase =
  *  - below md (phones): a top bar with a menu button that opens a slide-over drawer.
  * `collapsed` and `onToggle` come from `useAdminSidenav`, which persists the choice.
  */
-export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnelOnly = false }: { collapsed: boolean; onToggle: () => void; personnelOnly?: boolean }) {
+  const nav = personnelOnly ? PERSONNEL_NAV : NAV;
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -83,7 +87,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 px-3">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
             return (
@@ -192,7 +196,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
             </button>
           </div>
           <nav className="flex flex-1 flex-col gap-0.5 px-3">
-            {NAV.map((item) => {
+            {nav.map((item) => {
               const active = isActive(item.href);
               const Icon = item.icon;
               return (
