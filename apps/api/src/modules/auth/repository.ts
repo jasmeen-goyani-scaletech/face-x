@@ -44,6 +44,15 @@ export interface AuthRepository {
   }): Promise<RotationResult>;
   /** Revokes the whole session (token family) that `tokenHash` belongs to. Idempotent. */
   revokeFamilyByTokenHash(tokenHash: string, reason: 'LOGOUT'): Promise<void>;
+  /** Stores a new sign-in link for the user and retires their earlier unused ones, so only the latest link works. */
+  createSignInLink(input: {
+    userId: string;
+    createdBy: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<void>;
+  /** Marks the link used, atomically. Null when it is unknown, already used or expired. */
+  consumeSignInLink(tokenHash: string): Promise<{ userId: string; isActive: boolean } | null>;
 }
 
 async function revokeFamily(tx: Queryable, familyId: string, reason: string): Promise<void> {
@@ -171,6 +180,33 @@ export function createAuthRepository(db: Database): AuthRepository {
         );
         return { kind: 'ROTATED', userId: old.user_id };
       });
+    },
+
+    async createSignInLink({ userId, createdBy, tokenHash, expiresAt }) {
+      await db.transaction(async (tx) => {
+        await tx.query(
+          'update public.sign_in_links set used_at = now() where user_id = $1 and used_at is null',
+          [userId],
+        );
+        await tx.query(
+          `insert into public.sign_in_links (user_id, token_hash, created_by, expires_at)
+           values ($1, $2, $3, $4)`,
+          [userId, tokenHash, createdBy, expiresAt],
+        );
+      });
+    },
+
+    async consumeSignInLink(tokenHash) {
+      const { rows } = await db.query<{ user_id: string; is_active: boolean }>(
+        `update public.sign_in_links l
+            set used_at = now()
+           from public.users u
+          where l.token_hash = $1 and l.used_at is null and l.expires_at > now() and u.id = l.user_id
+        returning l.user_id, u.is_active`,
+        [tokenHash],
+      );
+      const row = rows[0];
+      return row ? { userId: row.user_id, isActive: row.is_active } : null;
     },
 
     async revokeFamilyByTokenHash(tokenHash, reason) {

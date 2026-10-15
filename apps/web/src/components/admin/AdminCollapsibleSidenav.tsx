@@ -10,13 +10,17 @@ const NAV = [
   { href: '/admin/tournaments', label: 'Tournaments', icon: TrophyIcon },
   { href: '/admin/teams', label: 'Teams', icon: UsersIcon },
   { href: '/admin/players', label: 'Players', icon: UsersIcon },
+  { href: '/admin/roster', label: 'Roster', icon: UsersIcon },
   { href: '/admin/coaches', label: 'Coaches', icon: UsersIcon },
   { href: '/admin/staff', label: 'Staff Members', icon: ShieldIcon },
   { href: '/admin/event-day', label: 'Event Day', icon: CalendarIcon }
 ];
 
 /** What a coach or staff member sees: only the teams they were assigned to. */
-const PERSONNEL_NAV = [{ href: '/admin/my-teams', label: 'My Teams', icon: UsersIcon }];
+const PERSONNEL_NAV = [
+  { href: '/admin/my-teams', label: 'My Teams', icon: UsersIcon },
+  { href: '/admin/roster', label: 'Roster', icon: UsersIcon }
+];
 
 async function signOut() {
   // Signing out ends the real session (the server revokes the refresh token) before leaving.

@@ -62,6 +62,8 @@ export interface ApiTeam {
   name: string;
   club: string;
   division: string;
+  /** Whether the team has reached its registration limit for each kind of registrant. */
+  full: { player: boolean; coach: boolean; staff: boolean };
 }
 
 export interface ApiTeamWithEvent {
@@ -108,7 +110,6 @@ export interface CreatePlayerInput {
   firstName: string;
   lastName: string;
   dateOfBirth: string;
-  ageDivision: ApiAgeDivision;
   email?: string;
   phone?: string;
   /** true: the signed-in account IS the player (PLAYER role). Otherwise a child registered by a PARENT. */
@@ -681,4 +682,10 @@ export interface ListAdminRegistrationsQuery {
   pageSize?: number;
   /** Whose registrations: players unless COACH or STAFF is asked for. */
   registrantType?: 'PLAYER' | ApiStaffProfileType;
+}
+
+/** A one-time sign-in link an admin hands to a coach or staff member. The token is shown once. */
+export interface ApiSignInLink {
+  token: string;
+  expiresAt: string;
 }

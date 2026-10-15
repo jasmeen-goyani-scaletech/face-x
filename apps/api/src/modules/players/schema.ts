@@ -28,8 +28,8 @@ export const createPlayerBodySchema = z
     email: emailField.optional(),
     phone: usPhone.optional(),
     schoolId: schoolId.optional(),
-    /** The bracket the player plays in. Required for every new player. */
-    ageDivision: z.enum(AGE_DIVISIONS),
+    /** The bracket the player plays in. No longer asked for at registration; still accepted. */
+    ageDivision: z.enum(AGE_DIVISIONS).optional(),
     /** true = the caller IS the player (PLAYER role); false/absent = the caller registers a child (PARENT role). */
     forSelf: z.boolean().optional(),
     guardian: guardianInputSchema.optional(),

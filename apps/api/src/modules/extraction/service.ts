@@ -68,6 +68,14 @@ export function createExtractionService({
       const adminView = isAdminOf(ctx, target.eventOrganizationId) && target.submitted;
       if (!target.isOwner && !adminView) throw docNotFound();
 
+      // A file that replaces one an admin rejected is reviewed by staff, never by the AI: it is not read, and it is never
+      // marked as AI-accepted (which would let it be approved without an admin).
+      if (target.isOwner && target.replacesRejected) {
+        throw AppError.conflict(
+          'EXTRACTION_NOT_APPLICABLE',
+          'A replacement for a rejected document is reviewed by staff and is not checked automatically',
+        );
+      }
       if (!target.uploaded) {
         throw AppError.conflict('UPLOAD_NOT_COMPLETE', 'The file has not been uploaded yet');
       }

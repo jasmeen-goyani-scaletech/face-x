@@ -90,6 +90,18 @@ export function newestPerType(documents: ApiDocument[]): ApiDocument[] {
   return [...byType.values()];
 }
 
+/**
+ * The newest file of a type as the form shows it. A replacement that has not been sent for review yet still carries the reason
+ * the file it replaces was rejected for, so the row stays in the alert style until the replacement is submitted.
+ */
+export function newestFileOfType(documents: ApiDocument[], type: ApiDocumentType, previewUrl?: string): UploadedFile {
+  const newest = newestPerType(documents).find((d) => d.documentType === type);
+  const file = toUploadedFile(newest, previewUrl);
+  if (!newest || newest.state !== 'UPLOADED') return file;
+  const earlier = documents.filter((d) => d.documentType === type && d.state === 'REJECTED').sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+  return earlier ? { ...file, priorRejection: toUploadedFile(earlier).reason ?? '' } : file;
+}
+
 /** True when a family has at least one document that was rejected and not yet replaced. */
 export const hasRejectedDocument = (documents: ApiDocument[]): boolean => newestPerType(documents).some((d) => d.state === 'REJECTED');
 

@@ -86,6 +86,13 @@ export function createAdminRouter(controller: AdminController, mw: AdminRouteMid
     mw.requireAdminRole,
     controller.removeTeamAssignment,
   );
+  // A one-time sign-in link for a coach or staff member who cannot get back into their account. Admin only.
+  router.post(
+    '/admin/registrations/:registrationId/sign-in-link',
+    mw.requireAuth,
+    mw.requireAdminRole,
+    controller.createSignInLink,
+  );
   router.post(
     '/admin/registrations/:registrationId/reject',
     mw.requireAuth,

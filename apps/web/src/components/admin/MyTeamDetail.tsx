@@ -73,9 +73,11 @@ export default function MyTeamDetail({ teamId }: { teamId: string }) {
   }
 
   const { team, roster } = state;
+  // Staff details are for admins; a coach or staff member sees the players only.
+  const seesStaff = team.via === 'ADMIN';
   const groups = [
     { title: 'Players', rows: roster.filter((m) => m.registrantType === 'PLAYER') },
-    { title: 'Staff', rows: roster.filter((m) => m.registrantType === 'STAFF') }
+    ...(seesStaff ? [{ title: 'Staff', rows: roster.filter((m) => m.registrantType === 'STAFF') }] : [])
   ];
 
   return (
@@ -89,7 +91,8 @@ export default function MyTeamDetail({ teamId }: { teamId: string }) {
         <p className="m-0 mt-1 text-sm text-ink-soft">{[team.club, team.division].filter(Boolean).join(' · ')}</p>
         <p className="m-0 mt-1 text-sm text-ink-soft">Tournament: {team.event.name}</p>
         <p className="m-0 mt-3 text-sm text-ink-soft">
-          {limitText('Players', team.limits.players)} · {limitText('Coaches', team.limits.coaches)} · {limitText('Staff', team.limits.staff)}
+          {limitText('Players', team.limits.players)} · {limitText('Coaches', team.limits.coaches)}
+          {seesStaff && <> · {limitText('Staff', team.limits.staff)}</>}
         </p>
         {team.inviteCode && (
           <p className="m-0 mt-1 text-sm text-ink-soft">

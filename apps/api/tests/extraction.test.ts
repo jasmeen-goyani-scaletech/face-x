@@ -415,3 +415,81 @@ describe('approval by the AI check', () => {
     for (const id of [...ids, unchecked]) expect((await statusOf(id)).status).toBe('PENDING');
   });
 });
+
+describe('replacing a document an admin rejected', () => {
+  const GOOD = { fullName: 'Casey Coach', expiryDate: '2027-06-01' };
+  const EXPIRED = { fullName: 'Casey Coach', expiryDate: '2020-01-01' };
+  const review = (id: string, body: object) => as(app, adminA).patch(`${D}/${id}/review`, body);
+  const rowOf = async (id: string) =>
+    (
+      await db.query<{ status: string; ai_accepted: boolean; ai_rejected: boolean }>(
+        'select status, ai_accepted, ai_rejected from public.documents where id = $1',
+        [id],
+      )
+    ).rows[0]!;
+
+  /** A coach whose first aid and YALF were approved and whose background check an admin rejected as expired. */
+  async function rejectedBackgroundCheck() {
+    const c = await coach();
+    const approved: string[] = [];
+    for (const t of ['FIRST_AID_CPR', 'YALF_TACKLE']) {
+      const id = await uploaded(c, fieldsFile(GOOD), { documentType: t });
+      expect((await extract(c.ownerId, id)).body.data.verdict.accepted).toBe(true);
+      await as(app, c.ownerId).post(`${D}/${id}/submit`, {});
+      approved.push(id);
+    }
+    const bad = await uploaded(c, fieldsFile(EXPIRED), { documentType: 'BACKGROUND_CHECK' });
+    expect((await extract(c.ownerId, bad)).body.data.verdict.accepted).toBe(false);
+    await as(app, c.ownerId).post(`${D}/${bad}/submit`, { aiRejected: true });
+    for (const id of approved) expect((await review(id, { decision: 'APPROVED' })).status).toBe(200);
+    const rej = await review(bad, { decision: 'REJECTED', reasonCode: 'EXPIRED', reason: 'This document has expired.' });
+    expect(rej.status, JSON.stringify(rej.body)).toBe(200);
+    return { c, bad };
+  }
+
+  it('is not read by the AI: the extract call is refused and the provider is never asked', async () => {
+    const { c } = await rejectedBackgroundCheck();
+    const fresh = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    const before = fake.calls.length;
+    const res = await extract(c.ownerId, fresh);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('EXTRACTION_NOT_APPLICABLE');
+    expect(fake.calls.length).toBe(before);
+    expect(await rowOf(fresh)).toMatchObject({ status: 'PENDING', ai_accepted: false });
+  });
+
+  it('waits for an admin even when every other document is approved, then an admin can approve it', async () => {
+    const { c } = await rejectedBackgroundCheck();
+    const fresh = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    await extract(c.ownerId, fresh);
+    const sub = await as(app, c.ownerId).post(`${D}/${fresh}/submit`, {});
+    expect(sub.status, JSON.stringify(sub.body)).toBe(200);
+    // No automatic approval, and no AI flag carried over from the rejected file.
+    expect(await rowOf(fresh)).toEqual({ status: 'PENDING', ai_accepted: false, ai_rejected: false });
+    const auto = await db.query('select 1 from public.document_reviews where document_id = $1', [fresh]);
+    expect(auto.rowCount).toBe(0);
+
+    const approved = await review(fresh, { decision: 'APPROVED' });
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect((await rowOf(fresh)).status).toBe('APPROVED');
+  });
+
+  it('can be rejected again by an admin and replaced once more, still without the AI', async () => {
+    const { c } = await rejectedBackgroundCheck();
+    const second = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    await as(app, c.ownerId).post(`${D}/${second}/submit`, {});
+    expect(
+      (await review(second, { decision: 'REJECTED', reasonCode: 'UNREADABLE', reason: 'Not legible.' })).status,
+    ).toBe(200);
+    const third = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    expect((await extract(c.ownerId, third)).status).toBe(409);
+  });
+
+  it('leaves first uploads alone: the AI still checks a document nobody has rejected', async () => {
+    const other = await coach();
+    const id = await uploaded(other, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    const res = await extract(other.ownerId, id);
+    expect(res.status).toBe(200);
+    expect(res.body.data.verdict.accepted).toBe(true);
+  });
+});

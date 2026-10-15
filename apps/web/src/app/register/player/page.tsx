@@ -9,6 +9,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
+import RegistrationFullCard from '@/components/registration/RegistrationFullCard';
 import ModernStepper from '@/components/ui/ModernStepper';
 import type { PlayerStep } from '@/lib/types';
 import { usePlayerWizard } from '@/lib/registration/usePlayerWizard';
@@ -70,6 +71,9 @@ function PlayerWizard() {
       </Card>
     );
   }
+
+  // A full team shows this instead of the form. Someone who already has a registration keeps it.
+  if (registration === null && w.invite.status === 'valid' && w.invite.full) return <RegistrationFullCard teamName={w.invite.invite.teamName} kind="player" />;
 
   const { step } = w;
   const consentRequirement = w.consents?.requirements.find((r) => r.code === 'GUARDIAN_CONSENT');

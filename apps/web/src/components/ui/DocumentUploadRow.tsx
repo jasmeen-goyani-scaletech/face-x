@@ -82,6 +82,8 @@ export default function DocumentUploadRow({
 
   const uploading = progress !== null;
   const rejected = value.review === 'rejected';
+  // A replacement that is stored but not yet sent for review: still shown with the reason the earlier file was rejected.
+  const resubmitDue = value.uploaded && value.review === 'not_submitted' && value.priorRejection !== undefined;
   const shownError = fileError ?? (value.uploaded ? null : error) ?? null;
 
   async function accept(files: FileList | null) {
@@ -117,7 +119,7 @@ export default function DocumentUploadRow({
       }}
       className={[
         'border-b border-line px-2 py-3 transition-colors last:border-b-0',
-        dragging ? 'bg-primary-light' : shownError || rejected ? 'bg-danger-tint' : ''
+        dragging ? 'bg-primary-light' : shownError || rejected || resubmitDue ? 'bg-danger-tint' : ''
       ].join(' ')}
     >
       {/* Phones: title row, then badge + actions row. From 480px: one row. */}
@@ -165,7 +167,7 @@ export default function DocumentUploadRow({
               <Chip kind="info">Uploading {progress}%</Chip>
             </span>
           ) : (
-            reviewChip(value.uploaded ? value.review === 'not_submitted' ? 'uploaded' : value.review : 'missing')
+            resubmitDue ? <Chip kind="danger">Not submitted</Chip> : reviewChip(value.uploaded ? value.review === 'not_submitted' ? 'uploaded' : value.review : 'missing')
           )}
 
           {value.uploaded ? (
@@ -223,6 +225,11 @@ export default function DocumentUploadRow({
 
       {rejected && !shownError && (
         <FieldError className="mt-1.5">Not accepted{value.reason ? `: ${value.reason}` : ''} — please upload a replacement.</FieldError>
+      )}
+      {resubmitDue && !shownError && (
+        <FieldError className="mt-1.5">
+          Not accepted{value.priorRejection ? `: ${value.priorRejection}` : ''} — submit your replacement for another review.
+        </FieldError>
       )}
       {shownError && <FieldError className="mt-1.5">{shownError}</FieldError>}
 

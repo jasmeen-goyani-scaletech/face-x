@@ -38,6 +38,7 @@ export interface AdminController {
   listTeamAssignments: RequestHandler;
   addTeamAssignment: RequestHandler;
   removeTeamAssignment: RequestHandler;
+  createSignInLink: RequestHandler;
 }
 
 const caller = (req: Parameters<RequestHandler>[0]) => {
@@ -191,6 +192,18 @@ export function createAdminController(service: AdminService): AdminController {
         getRequestMeta(req),
       );
       res.json({ success: true, data });
+    },
+
+    createSignInLink: async (req, res) => {
+      const registrationId = uuid.parse(req.params.registrationId);
+      const data = await service.createSignInLink(
+        caller(req),
+        registrationId,
+        getRequestMeta(req),
+      );
+      // The token is a credential: it must not be cached anywhere.
+      res.set('Cache-Control', 'no-store');
+      res.status(201).json({ success: true, data });
     },
 
     rejectRegistration: async (req, res) => {

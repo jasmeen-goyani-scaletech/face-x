@@ -48,8 +48,15 @@ export interface PersonnelView {
 export function viewOf(registration: ApiPersonnelRegistration, documents: ApiDocument[]): PersonnelView {
   if (APPROVED.includes(registration.status)) return { adminStatus: 'approved', rejectionReason: '' };
   if (CLOSED.includes(registration.status)) return { adminStatus: 'rejected', rejectionReason: 'This registration was not approved.' };
-  const reasons = newestPerType(documents)
-    .filter((d) => d.state === 'REJECTED')
+  // A rejection stays open until its replacement has been sent for review: a new file that is stored but not yet submitted
+  // (state UPLOADED) does not make the registration "submitted", or the family would never be offered the Submit button.
+  const open = newestPerType(documents).flatMap((d) => {
+    if (d.state === 'REJECTED') return [d];
+    if (d.state !== 'UPLOADED' && d.state !== 'AWAITING_UPLOAD') return [];
+    const earlier = documents.filter((x) => x.documentType === d.documentType && x.state === 'REJECTED').sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+    return earlier ? [earlier] : [];
+  });
+  const reasons = open
     .map((d) => {
       const label = DOCUMENT_LABELS[KEY_BY_DOCUMENT_TYPE[d.documentType]] ?? 'A document';
       const why = toUploadedFile(d).reason;

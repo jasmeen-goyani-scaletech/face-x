@@ -61,3 +61,20 @@ export async function ensureSession(input: { email: string; fullName?: string; r
   setSession(data);
   return data.user;
 }
+
+/**
+ * Spends an admin-issued sign-in link and signs in (the API sets the refresh cookie). A link works once, so the same token is
+ * never sent twice: concurrent or repeated calls (React strict mode runs effects twice in development) share one request.
+ */
+const redemptions = new Map<string, Promise<ApiUser>>();
+export function redeemSignInLink(token: string): Promise<ApiUser> {
+  let pending = redemptions.get(token);
+  if (!pending) {
+    pending = apiRequest<SessionResponse>('/auth/sign-in-link/redeem', { method: 'POST', body: { token }, auth: false }).then((data) => {
+      setSession(data);
+      return data.user;
+    });
+    redemptions.set(token, pending);
+  }
+  return pending;
+}

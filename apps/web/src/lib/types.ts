@@ -14,6 +14,8 @@ export interface UploadedFile {
   mimeType?: string;
   /** The AI check turned the document down twice before it was sent for review; only the admin sees this. */
   aiRejected?: boolean;
+  /** An admin rejected the file this one replaces, and the replacement has not been sent for review yet (the reason, possibly empty). */
+  priorRejection?: string;
 }
 
 export function emptyFile(): UploadedFile {
@@ -71,7 +73,6 @@ export interface PlayerBasic {
   phone: string;
   dob: string; // yyyy-mm-dd
   /** The bracket the player plays in; empty until chosen. Absent on drafts saved before it was asked for. */
-  ageDivision?: '' | 'U12' | 'U14' | 'U16';
 }
 
 /** The one place guardian details live (key kept as `emergency` so saved drafts still load). */
@@ -124,7 +125,7 @@ export function freshPlayerRegistration(invite: TeamInvite | null): PlayerRegist
     status: 'not_started',
     createdAt: null,
     completedAt: null,
-    basic: { firstName: '', lastName: '', email: '', phone: '', dob: '', ageDivision: '' },
+    basic: { firstName: '', lastName: '', email: '', phone: '', dob: '' },
     emergency: {
       guardianName: '',
       relationship: '',

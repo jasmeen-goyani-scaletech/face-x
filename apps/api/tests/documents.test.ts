@@ -662,6 +662,34 @@ describe('review workflow', () => {
     }
   });
 
+  it('shows the admin a submitted replacement instead of the rejected file, and keeps an unsubmitted one hidden', async () => {
+    const f = await family();
+    const rejectedId = await submitted(f);
+    expect((await reject(adminA, rejectedId)).status).toBe(200);
+    const adminList = async () =>
+      (await as(app, adminA).get(`${R}/${f.regId}/documents`)).body.data.documents as {
+        id: string;
+        state: string;
+      }[];
+
+    // Uploaded but not yet submitted: the admin still has only the rejected file (the family can still change theirs).
+    const replacementId = await uploaded(f);
+    expect((await adminList()).map((d) => [d.id, d.state])).toEqual([[rejectedId, 'REJECTED']]);
+
+    // Submitted: persisted, so every later request by the admin returns it, and the admin can open and decide it.
+    expect((await as(app, f.parent.id).post(`${D}/${replacementId}/submit`)).status).toBe(200);
+    for (let i = 0; i < 2; i++) {
+      const seen = await adminList();
+      expect(seen.find((d) => d.id === replacementId)).toMatchObject({ state: 'IN_REVIEW' });
+      expect(seen.find((d) => d.id === rejectedId)).toMatchObject({ state: 'REJECTED' });
+    }
+    expect((await as(app, adminA).get(`${D}/${replacementId}/download-url`)).status).toBe(200);
+    expect((await approve(adminA, replacementId)).status).toBe(200);
+    expect((await adminList()).find((d) => d.id === replacementId)).toMatchObject({
+      state: 'APPROVED',
+    });
+  });
+
   it('caps repeated uploads of a rejected document', async () => {
     const f = await family();
     for (let i = 0; i < 10; i++) {

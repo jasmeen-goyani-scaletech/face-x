@@ -37,7 +37,7 @@ export interface NewPlayer {
   email: string | null;
   phone: string | null;
   schoolId: string | null;
-  ageDivision: AgeDivision;
+  ageDivision: AgeDivision | null;
 }
 
 export interface PlayerRepository {

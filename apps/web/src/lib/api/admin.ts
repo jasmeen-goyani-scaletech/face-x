@@ -10,6 +10,7 @@ import type {
   ApiPage,
   ApiRegistrationStatus,
   ApiRosterEntry,
+  ApiSignInLink,
   ApiTeamAssignment,
   CreateEventInput,
   CreateTeamInput,
@@ -130,3 +131,7 @@ export const addTeamAssignment = (registrationId: string, teamId: string) =>
 
 export const removeTeamAssignment = (registrationId: string, teamId: string) =>
   apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams/${teamId}`, { method: 'DELETE' });
+
+/** A one-time sign-in link for a coach or staff member (named by their registration) who has no password and lost their session. */
+export const createSignInLink = (registrationId: string) =>
+  apiRequest<ApiSignInLink>(`/admin/registrations/${registrationId}/sign-in-link`, { method: 'POST' });

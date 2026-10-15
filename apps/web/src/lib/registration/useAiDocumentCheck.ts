@@ -25,6 +25,8 @@ export function useAiDocumentCheck() {
   /** Times the AI has turned down a document of each type. */
   const rejections = useRef(new Map<ApiDocumentType, number>());
   const flagged = useRef(new Set<ApiDocumentType>());
+  /** Types whose earlier upload an admin rejected: the new file replaces it and goes straight to staff review, with no AI check. */
+  const adminRejected = useRef(new Set<ApiDocumentType>());
   const [blocked, setBlocked] = useState<ReadonlySet<ApiDocumentType>>(new Set());
 
   const setBlockedFor = useCallback((type: ApiDocumentType, on: boolean) => {
@@ -41,7 +43,7 @@ export function useAiDocumentCheck() {
   const review = useCallback(
     async (document: ApiDocument): Promise<string | null> => {
       const type = document.documentType;
-      if (type === 'PROFILE_PHOTO' || extractionOff) return null;
+      if (type === 'PROFILE_PHOTO' || extractionOff || adminRejected.current.has(type)) return null;
       const verdict = await checkDocument(document.id).then(
         (r) => r.verdict,
         (e) => {
@@ -71,5 +73,13 @@ export function useAiDocumentCheck() {
   /** Whether this type was turned down twice, i.e. must be submitted with `aiRejected`. */
   const aiRejected = useCallback((type: ApiDocumentType) => flagged.current.has(type), []);
 
-  return useMemo(() => ({ review, aiRejected, blocked }), [review, aiRejected, blocked]);
+  /** Call with the registration's documents each time they are loaded, so a replacement of a rejected one is recognised. Only ever adds. */
+  const noteRejected = useCallback((documents: ApiDocument[]) => {
+    for (const d of documents) if (d.state === 'REJECTED') adminRejected.current.add(d.documentType);
+  }, []);
+
+  /** Whether an admin rejected an earlier file of this type, i.e. a file uploaded now is its replacement. */
+  const replacesRejected = useCallback((type: ApiDocumentType) => adminRejected.current.has(type), []);
+
+  return useMemo(() => ({ review, aiRejected, noteRejected, replacesRejected, blocked }), [review, aiRejected, noteRejected, replacesRejected, blocked]);
 }

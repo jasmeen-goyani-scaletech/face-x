@@ -9,6 +9,7 @@ import Alert from '@/components/ui/Alert';
 import Button from '@/components/ui/Button';
 import { TextField } from '@/components/ui/Field';
 import { describeError, fieldErrorsOf } from '@/lib/api/errors';
+import type { ApiUser } from '@/lib/api/types';
 import { isValidEmail } from '@/lib/validation';
 import { useAuth } from './AuthProvider';
 import { safeNextPath } from './RequireAuth';
@@ -22,7 +23,10 @@ function Form({ mode }: { mode: Mode }) {
   const router = useRouter();
   const params = useSearchParams();
   const next = safeNextPath(params.get('next'));
-  const { status, restore, login, signup } = useAuth();
+  const { status, user, restore, login, signup } = useAuth();
+  // Coaches and staff land on their teams after signing in, unless they were sent here from a specific page.
+  const landingFor = (u: ApiUser | null) =>
+    mode === 'login' && !params.get('next') && u && !u.roles.includes('ADMIN') && u.roles.some((r) => r === 'COACH' || r === 'STAFF') ? '/admin/my-teams' : next;
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -38,8 +42,9 @@ function Form({ mode }: { mode: Mode }) {
     if (status === 'idle') void restore();
   }, [status, restore]);
   useEffect(() => {
-    if (status === 'signedIn') router.replace(next);
-  }, [status, router, next]);
+    if (status === 'signedIn') router.replace(landingFor(user));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, user, router, next]);
 
   function validate(): Partial<Record<Field, string>> {
     const e: Partial<Record<Field, string>> = {};
@@ -62,9 +67,8 @@ function Form({ mode }: { mode: Mode }) {
     flight.current = true;
     setSubmitting(true);
     try {
-      if (mode === 'login') await login(email.trim(), password);
-      else await signup({ email: email.trim(), password, fullName: fullName.trim() || undefined });
-      router.replace(next);
+      const signedIn = mode === 'login' ? await login(email.trim(), password) : await signup({ email: email.trim(), password, fullName: fullName.trim() || undefined });
+      router.replace(landingFor(signedIn));
     } catch (e) {
       const api = fieldErrorsOf(e);
       if (api.email || api.password || api.fullName) {

@@ -52,6 +52,11 @@ export default function MyTeamsList() {
           <p className="m-0 text-ink-soft">
             You have no teams yet. Teams appear here once the league has assigned them to you and your registration is approved.
           </p>
+          <p className="m-0 mt-3 text-sm">
+            <Link href="/register/coach" className="font-semibold text-primary-strong">
+              View my registration status
+            </Link>
+          </p>
         </Card>
       ) : (
         <ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2">

@@ -12,6 +12,8 @@ export interface ExtractionTarget {
   uploaded: boolean;
   submitted: boolean;
   isOwner: boolean;
+  /** An admin rejected an earlier file of this type for this registration: this file is its replacement. */
+  replacesRejected: boolean;
   eventOrganizationId: string;
   profile: {
     firstName: string;
@@ -37,6 +39,7 @@ interface Row {
   uploaded: boolean;
   submitted: boolean;
   is_owner: boolean;
+  replaces_rejected: boolean;
   org: string;
   first_name: string;
   last_name: string;
@@ -59,6 +62,9 @@ export function createExtractionRepository(db: Queryable): ExtractionRepository 
         `select d.id, d.document_type, d.storage_key, d.mime_type,
                 d.uploaded_at is not null as uploaded, d.submitted_at is not null as submitted,
                 ${ownsRegistrantSql('pl', 'sp', '$2')} as is_owner, e.organization_id as org,
+                exists (select 1 from public.documents x
+                         where x.registration_id = d.registration_id and x.document_type = d.document_type
+                           and x.status = 'REJECTED' and x.id <> d.id) as replaces_rejected,
                 coalesce(pl.first_name, sp.first_name) as first_name,
                 coalesce(pl.last_name, sp.last_name) as last_name,
                 to_char(pl.date_of_birth, 'YYYY-MM-DD') as date_of_birth,
@@ -81,6 +87,7 @@ export function createExtractionRepository(db: Queryable): ExtractionRepository 
             uploaded: r.uploaded,
             submitted: r.submitted,
             isOwner: r.is_owner,
+            replacesRejected: r.replaces_rejected,
             eventOrganizationId: r.org,
             profile: {
               firstName: r.first_name,

@@ -252,7 +252,7 @@ export function createApp({
   );
   app.use('/api/v1', notifications.router);
   app.use('/api/v1', paymentsModule.router);
-  app.use('/api/v1', createAdminModule(db, auth.middleware));
+  app.use('/api/v1', createAdminModule(db, auth.middleware, auth.issueSignInLink));
   app.use('/api/v1', readiness.router);
   app.use(
     '/api/v1',

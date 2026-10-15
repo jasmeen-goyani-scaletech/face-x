@@ -14,6 +14,11 @@ export interface AuthModule {
   router: Router;
   /** Shared by every protected module: requireAuth, requireRole, requireEventAccess. */
   middleware: AuthMiddleware;
+  /** For the admin module: mints a sign-in link for a user. */
+  issueSignInLink: (
+    userId: string,
+    createdBy: string,
+  ) => Promise<{ token: string; expiresAt: Date }>;
 }
 
 export function createAuthModule(options: {
@@ -26,6 +31,7 @@ export function createAuthModule(options: {
   const service = createAuthService(options.service);
   const middleware = createAuthMiddleware(service, options.eventAccess);
   return {
+    issueSignInLink: service.issueSignInLink,
     router: createAuthRouter(createAuthController(service, options.cookies), {
       requireAuth: middleware.requireAuth,
       trustedOrigin: requireTrustedOrigin(options.allowedOrigins),

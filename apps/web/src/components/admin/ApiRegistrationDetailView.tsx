@@ -35,6 +35,7 @@ import AdminEntityDetailsLayout from './AdminEntityDetailsLayout';
 import DocumentReviewRow from './DocumentReviewRow';
 import DocumentReviewTable from './DocumentReviewTable';
 import DocumentsPanel from './DocumentsPanel';
+import SignInLinkCard from './SignInLinkCard';
 import TeamAssignmentsCard from './TeamAssignmentsCard';
 
 const KIND = {
@@ -316,6 +317,7 @@ export default function ApiRegistrationDetailView({ id, kind = 'PLAYER' }: { id:
     />
     {/* Coaches and staff work with the teams an admin assigns; a player belongs to the one team they registered for. */}
     {kind !== 'PLAYER' && <TeamAssignmentsCard registrationId={id} eventId={reg.event.id} label={copy.label} />}
+    {kind !== 'PLAYER' && <SignInLinkCard registrationId={id} label={copy.label} />}
     </>
   );
 }

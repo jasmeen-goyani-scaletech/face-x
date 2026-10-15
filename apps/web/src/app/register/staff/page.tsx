@@ -13,6 +13,7 @@ import ModernStepper from '@/components/ui/ModernStepper';
 import StepActions from '@/components/ui/StepActions';
 import MergedPhotoAndDocsStep from '@/components/registration/MergedPhotoAndDocsStep';
 import PersonnelEventField from '@/components/registration/PersonnelEventField';
+import RegistrationFullCard from '@/components/registration/RegistrationFullCard';
 import PersonnelLoadState from '@/components/registration/PersonnelLoadState';
 import SaveErrorAlert from '@/components/registration/player/SaveErrorAlert';
 import { TextField, SelectField } from '@/components/ui/Field';
@@ -63,6 +64,8 @@ function StaffWizard() {
   const proof = useFieldErrors(proofStep.errors, proofStep.order);
 
   if (w.phase !== 'ready') return <PersonnelLoadState phase={w.phase} error={w.loadError} onRetry={w.reload} />;
+  // A full team shows this instead of the form. Someone who already has a registration keeps it.
+  if (w.registration === null && w.invite.status === 'valid' && w.invite.full) return <RegistrationFullCard teamName={w.invite.invite.teamName} kind="staff" />;
 
   async function validateBasic() {
     if (submit()) await w.saveBasic();

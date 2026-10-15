@@ -27,6 +27,8 @@ export interface TeamDto {
   name: string;
   club: string;
   division: string;
+  /** Whether the team has reached its registration limit for each kind of registrant (a yes/no only: counts stay private). */
+  full: { player: boolean; coach: boolean; staff: boolean };
 }
 
 export interface TeamWithEventDto {

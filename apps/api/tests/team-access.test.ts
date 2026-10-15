@@ -161,6 +161,19 @@ describe('team-scoped access for coaches and staff', () => {
     expect((await coach.get(`/api/v1/team-access/teams/${teamA3}/roster`)).status).toBe(404);
   });
 
+  it('keeps staff out of a coach’s or staff member’s roster, and shows them to an admin', async () => {
+    const c = await person('COACH', 'READY_FOR_EVENT');
+    const s = await person('STAFF', 'READY_FOR_EVENT', { teamId: teamA1 });
+    await playerOn(teamA1);
+    await as(app, adminA).post(`${A}/${c.regId}/teams`, { teamId: teamA1 });
+    await as(app, adminA).post(`${A}/${s.regId}/teams`, { teamId: teamA1 });
+    const types = (r: { body: { data: { registrantType: string }[] } }) => r.body.data.map((m) => m.registrantType);
+
+    expect(types(await as(app, c.user.id).get(`/api/v1/team-access/teams/${teamA1}/roster`))).not.toContain('STAFF');
+    expect(types(await as(app, s.user.id).get(`/api/v1/team-access/teams/${teamA1}/roster`))).not.toContain('STAFF');
+    expect(types(await as(app, adminA).get(`/api/v1/team-access/teams/${teamA1}/roster`))).toContain('STAFF');
+  });
+
   it('stops working the moment the admin removes the assignment', async () => {
     const c = await person('COACH', 'VERIFIED');
     await as(app, adminA).post(`${A}/${c.regId}/teams`, { teamId: teamA1 });

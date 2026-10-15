@@ -27,7 +27,7 @@ import type {
 } from '@/lib/api/types';
 import { useLocalStorage } from '@/lib/storage';
 import { emptyFile, type CoachRegistration, type StaffRegistration, type TeamInvite, type UploadedFile } from '@/lib/types';
-import { newestPerType, toUploadedFile } from './documentMap';
+import { newestFileOfType, newestPerType, toUploadedFile } from './documentMap';
 import {
   AB506_CONSENT,
   CLOSED,
@@ -45,7 +45,7 @@ import { useAiDocumentCheck } from './useAiDocumentCheck';
 export type PersonnelPhase = 'loading' | 'ready' | 'error';
 export type PersonnelStep = 'basic' | 'certificates' | 'status';
 
-export type PersonnelInviteState = { status: 'none' } | { status: 'valid'; invite: TeamInvite; eventId: string } | { status: 'invalid' };
+export type PersonnelInviteState = { status: 'none' } | { status: 'valid'; invite: TeamInvite; eventId: string; /** The team has no places left for this kind of registrant. */ full: boolean } | { status: 'invalid' };
 
 export interface PersonnelWizardOptions {
   /** `?teamId=` and `?inviteCode=` from a team invite link. */
@@ -164,17 +164,14 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
 
   // ---------------------------------------------------------------- documents as the form shows them
   const aiCheck = useAiDocumentCheck();
+  // A document an admin rejected is replaced without another AI check: remember which types those are whenever the list is loaded.
+  const { noteRejected } = aiCheck;
+  useEffect(() => noteRejected(apiDocuments), [apiDocuments, noteRejected]);
   const files = useMemo(() => {
-    const newest = newestPerType(apiDocuments);
     const out = {} as Record<K, UploadedFile>;
     for (const key of keys) {
       // A document the AI check turned down the first time is held back until the person replaces it.
-      out[key] = aiCheck.blocked.has(config.documentTypes[key])
-        ? emptyFile()
-        : toUploadedFile(
-            newest.find((d) => d.documentType === config.documentTypes[key]),
-            previews[key]
-          );
+      out[key] = aiCheck.blocked.has(config.documentTypes[key]) ? emptyFile() : newestFileOfType(apiDocuments, config.documentTypes[key], previews[key]);
     }
     return out;
   }, [apiDocuments, previews, keys, config, aiCheck.blocked]);
@@ -243,7 +240,8 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
             inviteState = {
               status: 'valid',
               eventId: resolved.event.id,
-              invite: { teamId: resolved.team.id, inviteCode: options.inviteCode, teamName: resolved.team.name, club: resolved.team.club }
+              invite: { teamId: resolved.team.id, inviteCode: options.inviteCode, teamName: resolved.team.name, club: resolved.team.club },
+              full: config.kind === 'COACH' ? resolved.team.full.coach : resolved.team.full.staff
             };
           } catch (e) {
             // A link the API can't parse or find is just an invalid invite: the person can still register without a team.
@@ -397,6 +395,12 @@ function usePersonnelWizardFor<K extends string, R extends CoachRegistration | S
       // The first AI rejection is shown (and the upload row asks for a replacement); a second one is silent.
       const rejection = await aiCheck.review(document);
       if (rejection) throw new Error(rejection);
+      // A file that replaces one an admin rejected goes to staff review right away, so the admin sees it without a second step.
+      // If this call fails the upload still stands and "Submit" sends it later, so the failure is not shown as an upload error.
+      if (aiCheck.replacesRejected(document.documentType)) {
+        const sent = await submitDocument(document.id).catch(() => null);
+        if (sent) setApiDocuments((prev) => [...prev.filter((d) => d.documentType !== sent.documentType), sent]);
+      }
     },
     [config, aiCheck]
   );

@@ -1,19 +1,6 @@
-import { Suspense } from 'react';
-import Topbar from '@/components/layout/Topbar';
-import RequireAuth from '@/components/auth/RequireAuth';
-import CoachPlayerRosterView from '@/components/coach/CoachPlayerRosterView';
+import { redirect } from 'next/navigation';
 
+/** The coach's roster lives in the admin-style shell now (side navigation, team picker): `/admin/roster`. */
 export default function CoachTeamRosterPage() {
-  return (
-    <main>
-      <Topbar eyebrow="Coach" />
-      <div className="mx-auto max-w-[1100px] page-gutter pb-16 pt-6">
-        <Suspense fallback={null}>
-          <RequireAuth>
-            <CoachPlayerRosterView />
-          </RequireAuth>
-        </Suspense>
-      </div>
-    </main>
-  );
+  redirect('/admin/roster');
 }

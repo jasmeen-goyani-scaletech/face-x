@@ -167,7 +167,7 @@ describe('GET /registrations/:id/team/roster', () => {
     );
   }
 
-  it("lists only this team's players and staff, never coaches or other teams, with no email or documents", async () => {
+  it("lists only this team's players, never staff, coaches or other teams, with no email or documents", async () => {
     const lead = await coach('READY_FOR_EVENT');
     const created = await as(app, lead.user.id).post(`${R}/${lead.regId}/team`, {
       name: 'Roster Team',
@@ -183,7 +183,7 @@ describe('GET /registrations/:id/team/roster', () => {
     const res = await as(app, lead.user.id).get(`${R}/${lead.regId}/team/roster`);
     expect(res.status).toBe(200);
     const names = res.body.data.map((m: { firstName: string }) => m.firstName).sort();
-    expect(names).toEqual(['Pending', 'Pia', 'Stu']);
+    expect(names).toEqual(['Pending', 'Pia']);
     const pia = res.body.data.find((m: { firstName: string }) => m.firstName === 'Pia');
     expect(pia).toMatchObject({
       registrantType: 'PLAYER',

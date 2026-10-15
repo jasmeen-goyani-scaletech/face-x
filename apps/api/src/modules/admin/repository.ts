@@ -94,6 +94,8 @@ export interface AdminRepository {
     registrationId: string,
     lock?: boolean,
   ): Promise<PersonnelRegistrationRef | null>;
+  /** The account a coach/staff profile belongs to. */
+  findStaffUserId(staffProfileId: string): Promise<string | null>;
   listAssignments(staffProfileId: string): Promise<TeamAssignment[]>;
   /** False when the team was already assigned. */
   addAssignment(staffProfileId: string, teamId: string, assignedBy: string): Promise<boolean>;
@@ -462,6 +464,14 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
             registrantType: r.registrant_type,
           }
         : null;
+    },
+
+    async findStaffUserId(staffProfileId) {
+      const { rows } = await q.query<{ user_id: string }>(
+        'select user_id from public.staff_profiles where id = $1',
+        [staffProfileId],
+      );
+      return rows[0]?.user_id ?? null;
     },
 
     async listAssignments(staffProfileId) {

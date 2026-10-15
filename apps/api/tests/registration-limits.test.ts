@@ -176,6 +176,23 @@ describe('enforcement', () => {
     });
   });
 
+  it('tells the registration link, before any form is shown, which kinds of registrant the team is full for', async () => {
+    const team = await createTeam(db, eventId);
+    const { rows } = await db.query<{ invite_code: string }>('select invite_code from public.teams where id = $1', [team]);
+    const resolve = async () =>
+      (await as(app, adminA).post('/api/v1/teams/resolve-invite', { inviteCode: rows[0]!.invite_code, teamId: team })).body.data.team.full;
+
+    expect(await resolve()).toEqual({ player: false, coach: false, staff: false }); // no limits configured
+    await setLimits(team, { maxCoaches: 1, maxPlayers: 2 });
+    const c = await draftPersonnel('COACH', team);
+    expect(await resolve()).toEqual({ player: false, coach: false, staff: false }); // a draft holds no place
+    expect((await as(app, c.user.id).post(`${R}/${c.regId}/submit`)).status).toBe(200);
+    expect(await resolve()).toEqual({ player: false, coach: true, staff: false }); // only coaches are full
+    await submitPlayer(team);
+    await submitPlayer(team);
+    expect(await resolve()).toEqual({ player: true, coach: true, staff: false });
+  });
+
   it('keeps existing registrations when a limit is lowered, and blocks new ones until the count falls below it', async () => {
     const team = await createTeam(db, eventId);
     const first = await submitPlayer(team);

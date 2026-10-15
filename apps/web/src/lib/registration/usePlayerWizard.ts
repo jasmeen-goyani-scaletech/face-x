@@ -21,7 +21,6 @@ import {
 } from '@/lib/api/registrations';
 import type {
   ApiConsentStatus,
-  ApiAgeDivision,
   ApiConsentVersion,
   ApiDocument,
   ApiEvent,
@@ -47,7 +46,7 @@ export type WizardPhase = 'loading' | 'ready' | 'error';
 
 export type InviteState =
   | { status: 'none' }
-  | { status: 'valid'; invite: TeamInvite; eventId: string }
+  | { status: 'valid'; invite: TeamInvite; eventId: string; /** The team has no places left for players. */ full: boolean }
   | { status: 'invalid' };
 
 export interface WizardNotice {
@@ -141,7 +140,7 @@ function formFrom(registration: ApiRegistration, consents: ApiConsentStatus | nu
     status: registration.status === 'DRAFT' ? 'draft' : 'submitted',
     createdAt: Date.parse(registration.createdAt),
     completedAt: registration.submittedAt ? Date.parse(registration.submittedAt) : null,
-    basic: { firstName: p.firstName, lastName: p.lastName, email: p.email ?? '', phone: p.phone ?? '', dob: p.dateOfBirth, ageDivision: p.ageDivision ?? '' },
+    basic: { firstName: p.firstName, lastName: p.lastName, email: p.email ?? '', phone: p.phone ?? '', dob: p.dateOfBirth },
     emergency: {
       guardianName: guardian ? `${guardian.firstName} ${guardian.lastName}`.trim() : previous.emergency.guardianName,
       relationship: guardian?.relationship ?? previous.emergency.relationship,
@@ -313,7 +312,8 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
             inviteState = {
               status: 'valid',
               eventId: resolved.event.id,
-              invite: { teamId: resolved.team.id, inviteCode: options.inviteCode, teamName: resolved.team.name, club: resolved.team.club }
+              invite: { teamId: resolved.team.id, inviteCode: options.inviteCode, teamName: resolved.team.name, club: resolved.team.club },
+              full: resolved.team.full.player
             };
           } catch (e) {
             // A link the API can't even parse (old-style ids like "COACH-101", a truncated code) is just an invalid
@@ -476,15 +476,9 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     const b = form.basic;
     const mine = await listPlayers();
     const match = mine.find((p) => sameText(p.firstName, b.firstName) && sameText(p.lastName, b.lastName) && p.dateOfBirth === b.dob);
-    if (match) {
-      // The division chosen now wins over what the earlier attempt saved; a player already locked by a submission keeps theirs.
-      if (b.ageDivision && match.ageDivision !== b.ageDivision) {
-        return updatePlayer(match.id, { ageDivision: b.ageDivision }).catch(() => match);
-      }
-      return match;
-    }
+    if (match) return match;
 
-    const common = { firstName: b.firstName.trim(), lastName: b.lastName.trim(), dateOfBirth: b.dob, ageDivision: b.ageDivision as ApiAgeDivision, email: b.email.trim() || undefined, phone: b.phone.trim() || undefined };
+    const common = { firstName: b.firstName.trim(), lastName: b.lastName.trim(), dateOfBirth: b.dob, email: b.email.trim() || undefined, phone: b.phone.trim() || undefined };
     if (!isMinorNow(b.dob)) return createPlayer({ ...common, forSelf: true });
     const g = form.emergency;
     const name = splitFullName(g.guardianName);
@@ -558,7 +552,6 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
           if (b.firstName.trim() !== current.player.firstName) patch.firstName = b.firstName.trim();
           if (b.lastName.trim() !== current.player.lastName) patch.lastName = b.lastName.trim();
           if (b.dob !== current.player.dateOfBirth) patch.dateOfBirth = b.dob;
-          if (b.ageDivision && b.ageDivision !== current.player.ageDivision) patch.ageDivision = b.ageDivision;
           if ((b.email.trim() || null) !== current.player.email) patch.email = b.email.trim() || null;
           if ((b.phone.trim() || null) !== current.player.phone) patch.phone = b.phone.trim() || null;
           if (Object.keys(patch).length > 0) await updatePlayer(current.player.id, patch);
@@ -619,6 +612,9 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
 
   // ---------------------------------------------------------------- step 3: photo & documents
   const aiCheck = useAiDocumentCheck();
+  // A document an admin rejected is replaced without another AI check: remember which types those are whenever the list is loaded.
+  const { noteRejected } = aiCheck;
+  useEffect(() => noteRejected(apiDocuments), [apiDocuments, noteRejected]);
   const documents = useMemo(() => {
     const out = {} as Record<PlayerDocumentKey, UploadedFile>;
     for (const key of DOCUMENT_KEYS) {
@@ -664,6 +660,12 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     // The first AI rejection is shown (and the upload row asks for a replacement); a second one is silent.
     const rejection = await aiCheck.review(document);
     if (rejection) throw new Error(rejection);
+    // A file that replaces one an admin rejected goes to staff review right away, so the admin sees it without a second step.
+    // If this call fails the upload still stands and "Submit" sends it later, so the failure is not shown as an upload error.
+    if (aiCheck.replacesRejected(document.documentType)) {
+      const sent = await submitDocument(document.id).catch(() => null);
+      if (sent) setApiDocuments((prev) => [...prev.filter((d) => d.documentType !== sent.documentType), sent]);
+    }
   }, [aiCheck]);
 
   const finishDocuments = useCallback(async () => {

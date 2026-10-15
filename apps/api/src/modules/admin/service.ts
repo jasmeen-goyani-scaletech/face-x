@@ -120,6 +120,16 @@ export interface AdminService {
     teamId: string,
     meta: RequestMeta,
   ): Promise<TeamAssignment[]>;
+  /**
+   * A one-time sign-in link for a coach or staff member (named by their registration), for people who have no password and
+   * lost their session. Valid for 24 hours and until used; a newer link replaces an older one. Only an admin of the
+   * registration's organization may issue it. The token is shown once and never stored in the clear.
+   */
+  createSignInLink(
+    ctx: AuthContext,
+    registrationId: string,
+    meta: RequestMeta,
+  ): Promise<{ token: string; expiresAt: string }>;
 }
 
 const teamNotFound = () => AppError.notFound('TEAM_NOT_FOUND', 'Team not found');
@@ -130,7 +140,13 @@ const administers = (ctx: AuthContext, organizationId: string) =>
   ctx.organizationId !== null &&
   ctx.organizationId === organizationId;
 
-export function createAdminService(repository: AdminRepository): AdminService {
+export function createAdminService(
+  repository: AdminRepository,
+  issueSignInLink: (
+    userId: string,
+    createdBy: string,
+  ) => Promise<{ token: string; expiresAt: Date }>,
+): AdminService {
   return {
     listEvents: (ctx) =>
       ctx.organizationId ? repository.listEvents(ctx.organizationId) : Promise.resolve([]),
@@ -292,6 +308,22 @@ export function createAdminService(repository: AdminRepository): AdminService {
         }
         return r.listAssignments(reg.staffProfileId);
       });
+    },
+
+    async createSignInLink(ctx, registrationId, meta) {
+      const reg = await repository.findPersonnelRegistration(registrationId);
+      if (!reg || !administers(ctx, reg.organizationId)) throw personnelNotFound();
+      const userId = await repository.findStaffUserId(reg.staffProfileId);
+      if (!userId) throw personnelNotFound();
+      const { token, expiresAt } = await issueSignInLink(userId, ctx.userId);
+      await repository.audit({
+        action: 'SIGN_IN_LINK_ISSUED',
+        entityType: 'registration',
+        actorUserId: ctx.userId,
+        entityId: registrationId,
+        meta,
+      });
+      return { token, expiresAt: expiresAt.toISOString() };
     },
 
     async removeTeamAssignment(ctx, registrationId, teamId, meta) {

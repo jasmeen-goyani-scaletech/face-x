@@ -238,7 +238,6 @@ describe('input validation (422) and role gates', () => {
     ['impossible date', { dateOfBirth: '2014-02-30' }],
     ['future date', { dateOfBirth: '2999-01-01' }],
     ['ancient date', { dateOfBirth: '1800-01-01' }],
-    ['missing age division', { ageDivision: undefined }],
     ['unknown age division', { ageDivision: 'U10' }],
     ['lower-case age division', { ageDivision: 'u14' }],
     ['bad phone', { phone: '123' }],
@@ -253,6 +252,13 @@ describe('input validation (422) and role gates', () => {
     const res = await as(app, parent.id).post('/api/v1/players', childBody(override));
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('does not require an age division', async () => {
+    const parent = await newParent();
+    const res = await as(app, parent.id).post('/api/v1/players', childBody({ ageDivision: undefined }));
+    expect(res.status).toBe(201);
+    expect(res.body.data.ageDivision).toBeNull();
   });
 
   it('requires authentication and a family role', async () => {

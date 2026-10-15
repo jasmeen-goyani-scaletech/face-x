@@ -10,8 +10,15 @@ export { createAdminRepository } from './repository';
 export type { AdminRepository } from './repository';
 export type * from './types';
 
-export function createAdminModule(db: Database, auth: AuthMiddleware): Router {
-  return createAdminRouter(createAdminController(createAdminService(createAdminRepository(db))), {
+export function createAdminModule(
+  db: Database,
+  auth: AuthMiddleware,
+  issueSignInLink: (
+    userId: string,
+    createdBy: string,
+  ) => Promise<{ token: string; expiresAt: Date }>,
+): Router {
+  return createAdminRouter(createAdminController(createAdminService(createAdminRepository(db), issueSignInLink)), {
     requireAuth: auth.requireAuth,
     requireEventAdmin: auth.requireEventAccess({ allow: ['ADMIN'] }),
     requireAdminRole: auth.requireRole('ADMIN'),

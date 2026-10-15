@@ -46,7 +46,7 @@ function AdminShell({ children, personnelOnly = false }: { children: React.React
 function PersonnelShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const allowed = !!pathname && (pathname === '/admin/my-teams' || pathname.startsWith('/admin/my-teams/'));
+  const allowed = !!pathname && ['/admin/my-teams', '/admin/roster'].some((p) => pathname === p || pathname.startsWith(p + '/'));
   useEffect(() => {
     if (!allowed) router.replace('/admin/my-teams');
   }, [allowed, router]);
