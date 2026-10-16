@@ -394,7 +394,8 @@ export interface ApiPaymentSummary {
 export interface ApiCheckout {
   paymentId: string;
   checkoutUrl: string;
-  expiresAt: string;
+  /** Null for a Stripe Payment Link, which does not expire on its own. */
+  expiresAt: string | null;
 }
 
 // ---------------- Readiness ----------------

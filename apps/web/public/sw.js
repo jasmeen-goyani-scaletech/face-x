@@ -3,6 +3,10 @@
 // rendering) when connectivity drops mid-registration.
 const CACHE_VERSION = 'face-x-v1';
 const APP_SHELL = ['/', '/register', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
+// On a developer's machine the build files (/_next/...) keep the same address while the code changes, so caching them would show
+// old code after every edit. They are never cached there, and any already cached are removed.
+const IS_LOCAL_DEV = ['localhost', '127.0.0.1', '[::1]'].includes(self.location.hostname);
+const isBuildFile = (url) => url.pathname.startsWith('/_next/');
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -10,11 +14,17 @@ self.addEventListener('install', (event) => {
   );
 });
 
+function dropCachedBuildFiles() {
+  return caches.open(CACHE_VERSION).then((cache) =>
+    cache.keys().then((requests) => Promise.all(requests.filter((r) => isBuildFile(new URL(r.url))).map((r) => cache.delete(r))))
+  );
+}
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key)))
-    ).then(() => self.clients.claim())
+    ).then(() => (IS_LOCAL_DEV ? dropCachedBuildFiles() : undefined)).then(() => self.clients.claim())
   );
 });
 
@@ -91,6 +101,7 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   // API responses are live data (e.g. the Admin sync reconcile), never cache-first.
   if (url.pathname.startsWith('/api/')) return;
+  if (IS_LOCAL_DEV && isBuildFile(url)) return; // development: always the current code, from the network
 
   // Navigations: network-first so users get fresh screens online, with an
   // offline fallback to whatever shell page is cached.

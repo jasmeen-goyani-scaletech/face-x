@@ -113,6 +113,8 @@ function main(): void {
           webhookSecret: env.STRIPE_WEBHOOK_SECRET,
         })
       : undefined,
+    paymentLinkUrl: env.STRIPE_PAYMENT_LINK_URL,
+    paymentLinkAmountCents: env.STRIPE_PAYMENT_LINK_AMOUNT_CENTS,
     faceScan: {
       matchThreshold: env.FACE_MATCH_THRESHOLD,
       reviewThreshold: env.FACE_REVIEW_THRESHOLD,

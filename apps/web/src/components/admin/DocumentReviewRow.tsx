@@ -175,10 +175,10 @@ export default function DocumentReviewRow({
             {value.aiRejected && !isRejected ? (
               <p
                 className="m-0 mt-0.5 flex items-start gap-1 text-xs font-medium leading-snug text-warning"
-                title="The AI check could not verify this document after two tries. Please review it by eye."
+                title="The AI check could not verify this document after two tries. It needs a manual review by an admin."
               >
                 <AlertCircleIcon size={13} className="mt-px shrink-0" />
-                <span className="xl:truncate">AI could not verify it — review by eye</span>
+                <span className="xl:truncate">AI could not verify it — needs manual review</span>
               </p>
             ) : isRejected ? (
               <p

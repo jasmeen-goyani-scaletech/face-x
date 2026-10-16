@@ -10,7 +10,7 @@ import Button from '@/components/ui/Button';
 import { AlertTriangleIcon } from '@/components/ui/Icons';
 import { describeError, hasCode } from '@/lib/api/errors';
 import { evaluateReadiness, getPayment } from '@/lib/api/payments';
-import { parseOutcome } from '@/lib/payment';
+import { parseOutcome, recallPaymentRegistration } from '@/lib/payment';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The webhook normally lands within a few seconds of the redirect. Beyond this we stop waiting and say so. */
@@ -32,7 +32,7 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
 function PaymentReturn() {
   const router = useRouter();
   const params = useSearchParams();
-  const registrationId = params.get('registrationId') ?? params.get('reference') ?? '';
+  const registrationIdFromUrl = params.get('registrationId') ?? params.get('reference') ?? '';
   const outcome = parseOutcome(params.get('status'));
   const [view, setView] = useState<View>({ kind: 'confirming' });
   // Counts confirmation runs so a superseded or abandoned poll stops quietly.
@@ -43,6 +43,8 @@ function PaymentReturn() {
     const mine = ++gen.n;
     const stale = () => mine !== gen.n;
     setView({ kind: 'confirming' });
+    // A Stripe Payment Link returns to a fixed address, so the registration comes from what was remembered before leaving.
+    const registrationId = registrationIdFromUrl || recallPaymentRegistration();
 
     if (!UUID.test(registrationId)) {
       setView({ kind: 'problem', title: 'We couldn’t find your registration', message: 'This payment link is missing its registration reference. Please return to your registration.' });
@@ -78,7 +80,7 @@ function PaymentReturn() {
         setView({ kind: 'problem', title: 'We couldn’t confirm your payment', message: `${describeError(e)} If you were charged, contact the league before paying again.` });
       }
     }
-  }, [registrationId, outcome, router]);
+  }, [registrationIdFromUrl, outcome, router]);
 
   useEffect(() => {
     const gen = generation.current;

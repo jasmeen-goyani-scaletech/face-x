@@ -43,6 +43,8 @@ export const buildApi = (
     documentExtraction?: DocumentExtractionConfig;
     extractionsPerMinute?: number;
     payments?: PaymentProvider;
+    paymentLinkUrl?: string;
+    paymentLinkAmountCents?: number;
     pushSender?: PushSender;
     faceRecognition?: FaceRecognitionConfig;
     faceScan?: FaceScanPolicy;
@@ -58,6 +60,8 @@ export const buildApi = (
     rateLimits: options.rateLimits,
     storage: options.storage,
     payments: options.payments,
+    paymentLinkUrl: options.paymentLinkUrl,
+    paymentLinkAmountCents: options.paymentLinkAmountCents,
     pushSender: options.pushSender,
     faceRecognition: options.faceRecognition,
     faceScan: options.faceScan,

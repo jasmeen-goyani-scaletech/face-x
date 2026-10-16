@@ -77,6 +77,12 @@ const envSchema = z
     // Optional until the payments / face-recognition phases land.
     STRIPE_SECRET_KEY: optionalString,
     STRIPE_WEBHOOK_SECRET: optionalString,
+    // Player payments through a Stripe Payment Link (TEST MODE ONLY): the https://buy.stripe.com/... URL of the link. When set,
+    // paying sends the player to this link with the payment's id as client_reference_id, and the signed webhook confirms it.
+    STRIPE_PAYMENT_LINK_URL: optionalString,
+    // The price the Payment Link charges, in cents (45.50 USD = 4550). A registration whose fee differs is refused before the player is
+    // sent to Stripe, instead of being charged and then not recognised. Unset = no such check (the webhook still compares amounts).
+    STRIPE_PAYMENT_LINK_AMOUNT_CENTS: optionalNumber(z.number().int().min(1)),
     // Face recognition. FACE_PROVIDER names a registered adapter (none exist yet). FACE_CONSENT_CODE is the biometric
     // consent that must be on record before enrollment, or NONE to explicitly waive it. Unset = enrollment disabled.
     FACE_PROVIDER: z
@@ -167,6 +173,17 @@ const envSchema = z
       .or(z.literal('').transform(() => undefined)),
   })
   .superRefine((env, ctx) => {
+    if (env.STRIPE_PAYMENT_LINK_URL !== undefined) {
+      if (!/^https:\/\/buy\.stripe\.com\/\S+$/.test(env.STRIPE_PAYMENT_LINK_URL) || !URL.canParse(env.STRIPE_PAYMENT_LINK_URL)) {
+        ctx.addIssue({ code: 'custom', path: ['STRIPE_PAYMENT_LINK_URL'], message: 'must be a https://buy.stripe.com/... Payment Link' });
+      }
+      if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) {
+        ctx.addIssue({ code: 'custom', path: ['STRIPE_PAYMENT_LINK_URL'], message: 'needs STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET (the webhook is what confirms a payment)' });
+      }
+      if (/^(sk|rk)_live_/.test(env.STRIPE_SECRET_KEY ?? '')) {
+        ctx.addIssue({ code: 'custom', path: ['STRIPE_SECRET_KEY'], message: 'must be a test-mode key (sk_test_...): Payment Links are test mode only' });
+      }
+    }
     if (env.JWT_SECRET === env.REFRESH_TOKEN_SECRET) {
       ctx.addIssue({
         code: 'custom',

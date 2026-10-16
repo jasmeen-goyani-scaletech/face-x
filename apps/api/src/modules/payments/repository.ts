@@ -77,7 +77,8 @@ export interface PaymentRepository {
   lockPaymentBySession(sessionId: string): Promise<PaymentRecord | null>;
   lockPaymentById(paymentId: string): Promise<PaymentRecord | null>;
   findOtherPaid(registrationId: string, exceptPaymentId: string): Promise<boolean>;
-  markPaid(paymentId: string, paymentIntentId: string | null): Promise<void>;
+  /** The session id is recorded when the payment did not have one yet (a Payment Link payment only learns it from Stripe). */
+  markPaid(paymentId: string, paymentIntentId: string | null, sessionId?: string | null): Promise<void>;
   markFailed(paymentId: string, code: string): Promise<void>;
   markCancelled(paymentId: string, code: string): Promise<void>;
   recordAttemptFailure(paymentId: string, code: string): Promise<void>;
@@ -306,13 +307,14 @@ function build(q: Queryable, run: PaymentRepository['transaction']): PaymentRepo
       return rows.length > 0;
     },
 
-    async markPaid(paymentId, paymentIntentId) {
+    async markPaid(paymentId, paymentIntentId, sessionId = null) {
       await q.query(
         `update public.payments
             set status = 'PAID', paid_at = now(), failure_reason = null,
-                stripe_payment_intent_id = coalesce($2, stripe_payment_intent_id)
+                stripe_payment_intent_id = coalesce($2, stripe_payment_intent_id),
+                stripe_checkout_session_id = coalesce(stripe_checkout_session_id, $3)
           where id = $1`,
-        [paymentId, paymentIntentId],
+        [paymentId, paymentIntentId, sessionId],
       );
     },
 

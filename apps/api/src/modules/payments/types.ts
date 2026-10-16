@@ -36,7 +36,8 @@ export interface CheckoutDto {
   paymentId: string;
   /** Redirect the browser here. A bearer link to the provider's hosted page; it is never stored or logged. */
   checkoutUrl: string;
-  expiresAt: string;
+  /** Null for a Payment Link, which does not expire on its own. */
+  expiresAt: string | null;
 }
 
 export interface WebhookResult {

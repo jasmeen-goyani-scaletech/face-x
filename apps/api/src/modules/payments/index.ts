@@ -24,6 +24,8 @@ export function createPaymentsModule(options: {
   auth: AuthMiddleware;
   provider?: PaymentProvider;
   returnBaseUrl: string;
+  paymentLinkUrl?: string;
+  paymentLinkAmountCents?: number;
   logger: Logger;
   checkoutRequestsPerMinute: number;
   notifications?: NotificationPublisher;
@@ -33,6 +35,8 @@ export function createPaymentsModule(options: {
       repository: createPaymentRepository(options.db),
       provider: options.provider,
       returnBaseUrl: options.returnBaseUrl,
+      paymentLinkUrl: options.paymentLinkUrl,
+      paymentLinkAmountCents: options.paymentLinkAmountCents,
       notifications: options.notifications,
     }),
     options.logger,

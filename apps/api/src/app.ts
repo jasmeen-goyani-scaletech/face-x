@@ -83,6 +83,10 @@ export interface AppDeps {
   extractionsPerMinute?: number;
   /** Stripe (or another provider). Absent when STRIPE_SECRET_KEY is not configured: payment endpoints answer 503. */
   payments?: PaymentProvider;
+  /** A Stripe Payment Link (test mode) that player payments are sent to instead of a Checkout Session. */
+  paymentLinkUrl?: string;
+  /** What that link charges, in cents: a registration with another fee is refused before the redirect. */
+  paymentLinkAmountCents?: number;
   /** Web Push delivery (VAPID). Absent when VAPID_* is not configured: subscribing answers 503 and nothing is sent. */
   pushSender?: PushSender;
   /** Per-IP requests per minute for starting a checkout (default 10). Raised only by tests. */
@@ -102,6 +106,8 @@ export function createApp({
   rateLimits,
   storage,
   payments,
+  paymentLinkUrl,
+  paymentLinkAmountCents,
   pushSender,
   faceRecognition,
   documentExtraction,
@@ -143,6 +149,8 @@ export function createApp({
     auth: auth.middleware,
     provider: payments,
     returnBaseUrl: env.FRONTEND_URL[0] ?? '',
+    paymentLinkUrl,
+    paymentLinkAmountCents,
     logger,
     checkoutRequestsPerMinute,
   });

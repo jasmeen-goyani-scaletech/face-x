@@ -102,8 +102,14 @@ export function newestFileOfType(documents: ApiDocument[], type: ApiDocumentType
   return earlier ? { ...file, priorRejection: toUploadedFile(earlier).reason ?? '' } : file;
 }
 
-/** True when a family has at least one document that was rejected and not yet replaced. */
-export const hasRejectedDocument = (documents: ApiDocument[]): boolean => newestPerType(documents).some((d) => d.state === 'REJECTED');
+/**
+ * True when a family has at least one document that was rejected and whose replacement has not been sent for review yet: the
+ * newest file is the rejected one, or it is a replacement that is stored but still unsubmitted (state UPLOADED).
+ */
+export const hasRejectedDocument = (documents: ApiDocument[]): boolean =>
+  newestPerType(documents).some(
+    (d) => d.state === 'REJECTED' || (d.state === 'UPLOADED' && documents.some((x) => x.documentType === d.documentType && x.state === 'REJECTED'))
+  );
 
 /**
  * Whether the family may upload a file here. The server only accepts a new file for a document that was never sent for
