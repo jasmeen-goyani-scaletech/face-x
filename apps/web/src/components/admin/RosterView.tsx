@@ -7,10 +7,11 @@ import Card from '@/components/ui/Card';
 import Chip from '@/components/ui/Chip';
 import { SelectField } from '@/components/ui/Field';
 import { UsersIcon } from '@/components/ui/Icons';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { describeError } from '@/lib/api/errors';
 import { getAccessibleTeamRoster, getMyTeams } from '@/lib/api/teamAccess';
 import type { ApiTeamMember } from '@/lib/api/types';
-import { initialsOf } from '@/lib/format';
+import { formatDate, initialsOf } from '@/lib/format';
 
 interface RosterTeam {
   id: string;
@@ -32,7 +33,7 @@ type Players = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message
  * assigned to. Choosing a team lists the players on that team only. Scope is enforced by the API
  * (`/team-access/teams/:id/roster` answers 404 for a team the caller may not reach), this only chooses what to ask for.
  */
-export default function RosterView() {
+function CoachRosterView() {
   const [state, setState] = useState<State>({ kind: 'loading' });
   const [teamId, setTeamId] = useState('');
   const [players, setPlayers] = useState<Players>({ kind: 'idle' });
@@ -169,4 +170,101 @@ export default function RosterView() {
       )}
     </div>
   );
+}
+
+/**
+ * Staff have no team of their own, so there is no team picker and no team information: one list of the players on the teams the
+ * league assigned them to (merged, no duplicates), with each player's details. No documents are part of it. The API decides
+ * which teams and players are reachable; this only asks for each assigned team's roster.
+ */
+function StaffRosterView() {
+  const [state, setState] = useState<{ kind: 'loading' } | { kind: 'error'; message: string } | { kind: 'ready'; players: ApiTeamMember[] }>({ kind: 'loading' });
+
+  const load = useCallback(async () => {
+    setState({ kind: 'loading' });
+    try {
+      const teams = await getMyTeams();
+      const rosters = await Promise.all(teams.map((t) => getAccessibleTeamRoster(t.id)));
+      const seen = new Set<string>();
+      const players = rosters
+        .flat()
+        .filter((m) => m.registrantType === 'PLAYER' && !seen.has(m.registrationId) && !!seen.add(m.registrationId))
+        .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+      setState({ kind: 'ready', players });
+    } catch (e) {
+      setState({ kind: 'error', message: describeError(e, 'We couldn’t load the players. Please try again.') });
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const heading = (
+    <>
+      <h1 className="text-2xl mb-1">Roster</h1>
+      <p className="text-ink-soft text-sm mb-5">The players you can view. You can see their details, not their documents.</p>
+    </>
+  );
+
+  if (state.kind === 'loading') return <p role="status" className="text-ink-soft text-sm">Loading…</p>;
+  if (state.kind === 'error') {
+    return (
+      <div>
+        {heading}
+        <Card>
+          <Alert level="danger" title="We couldn’t load the players">
+            {state.message}
+          </Alert>
+          <Button variant="primary" onClick={() => void load()}>
+            Try again
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+  return (
+    <div>
+      {heading}
+      {state.players.length === 0 ? (
+        <Card className="text-center py-10">
+          <UsersIcon size={32} className="mx-auto mb-3 text-ink-faint" />
+          <p className="m-0 text-sm text-ink-soft">No players to show yet. They appear here once the league has given you access and players have registered.</p>
+        </Card>
+      ) : (
+        <section aria-label="Players">
+          <h2 className="mb-3 text-[13px] tracking-wide uppercase">Players ({state.players.length})</h2>
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {state.players.map((m) => (
+              <li key={m.registrationId} className="flex items-center gap-3 rounded-s border border-line bg-surface px-3.5 py-2.5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 font-display text-sm font-bold text-ink-soft">
+                  {initialsOf(m.firstName, m.lastName)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-bold text-ink">
+                    {m.firstName} {m.lastName}
+                  </div>
+                  <div className="text-[12.5px] text-ink-soft">
+                    {m.registrationNumber}
+                    {m.dateOfBirth ? ` · ${formatDate(m.dateOfBirth)}` : ''}
+                    {m.guardianName ? ` · Guardian: ${m.guardianName}${m.guardianPhone ? ` (${m.guardianPhone})` : ''}` : m.phone ? ` · ${m.phone}` : ''}
+                  </div>
+                </div>
+                <Chip compact kind={m.eventAccessDisabled ? 'danger' : m.approved ? 'success' : 'warning'}>
+                  {m.eventAccessDisabled ? 'Access off' : m.approved ? 'Approved' : 'Pending'}
+                </Chip>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/** Coaches pick one of their teams; staff get a single player list. */
+export default function RosterView() {
+  const { user } = useAuth();
+  if (!user) return <p role="status" className="text-ink-soft text-sm">Loading…</p>;
+  return user.roles.includes('COACH') ? <CoachRosterView /> : <StaffRosterView />;
 }

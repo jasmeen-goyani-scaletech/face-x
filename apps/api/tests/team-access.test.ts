@@ -213,6 +213,8 @@ describe('team-scoped access for coaches and staff', () => {
       const c = await person('COACH', status);
       await as(app, adminA).post(`${A}/${c.regId}/teams`, { teamId: teamA1 });
       expect((await as(app, c.user.id).get(`/api/v1/team-access/teams/${teamA1}`)).status).toBe(404);
+      expect((await as(app, c.user.id).get(`/api/v1/team-access/teams/${teamA1}/roster`)).status).toBe(404);
+      expect((await as(app, c.user.id).get('/api/v1/me/teams')).body.data).toEqual([]);
     }
     const off = await person('COACH', 'READY_FOR_EVENT', { disabled: true });
     await as(app, adminA).post(`${A}/${off.regId}/teams`, { teamId: teamA1 });
@@ -244,6 +246,35 @@ describe('team-scoped access for coaches and staff', () => {
     const own = await as(app, adminA).get(`/api/v1/team-access/teams/${teamA1}`);
     expect(own.status).toBe(200);
     expect(own.body.data.via).toBe('ADMIN');
+  });
+
+  it('closes every admin and document-review endpoint to staff, even on their own team', async () => {
+    const s = await person('STAFF', 'READY_FOR_EVENT', { teamId: teamA1 });
+    await playerOn(teamA1);
+    await as(app, adminA).post(`${A}/${s.regId}/teams`, { teamId: teamA1 });
+    const staff = as(app, s.user.id);
+    const id = '00000000-0000-4000-8000-0000000000aa';
+    const v1 = '/api/v1';
+    const gets = [
+      '/admin/events',
+      '/admin/teams',
+      `/admin/teams/${teamA1}`,
+      `/admin/events/${eventA}`,
+      `/admin/events/${eventA}/teams`,
+      `/admin/events/${eventA}/roster`,
+      `/admin/events/${eventA}/summary`,
+      `/admin/events/${eventA}/registrations`,
+      `/admin/events/${eventA}/review-queue`,
+      `/admin/registrations/${id}/teams`,
+      `/events/${eventA}/search-players?q=pia`,
+    ];
+    for (const path of gets) expect([path, (await staff.get(v1 + path)).status]).toEqual([path, 403]);
+    // Approving or rejecting a document, and the other admin actions, are admin-only too.
+    expect((await staff.patch(`${v1}/documents/${id}/review`, { decision: 'APPROVED' })).status).toBe(403);
+    expect((await staff.patch(`${v1}/admin/registrations/${id}/event-access`, { disabled: true })).status).toBe(403);
+    expect((await staff.post(`${v1}/admin/registrations/${id}/reject`, {})).status).toBe(403);
+    expect((await staff.post(`${v1}/admin/registrations/${id}/sign-in-link`, {})).status).toBe(403);
+    expect((await staff.post(`${v1}/events/${eventA}/check-ins`, {})).status).toBe(403);
   });
 
   it('does not let a coach or staff member use admin endpoints', async () => {

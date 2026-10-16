@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { logout as apiLogout } from '@/lib/api/auth';
 import PushNotificationsButton from '@/components/notifications/PushNotificationsButton';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, LogoutIcon, ShieldIcon, TrophyIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
@@ -57,7 +58,12 @@ const itemBase =
  * `collapsed` and `onToggle` come from `useAdminSidenav`, which persists the choice.
  */
 export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnelOnly = false }: { collapsed: boolean; onToggle: () => void; personnelOnly?: boolean }) {
-  const nav = personnelOnly ? PERSONNEL_NAV : NAV;
+  const { user } = useAuth();
+  // Staff have no team of their own: their navigation is the roster alone.
+  const isStaffOnly = personnelOnly && !!user && !user.roles.includes('COACH');
+  const nav = isStaffOnly ? PERSONNEL_NAV.filter((i) => i.href === '/admin/roster') : personnelOnly ? PERSONNEL_NAV : NAV;
+  // Coaches and staff are not admins, so the panel is never labelled "Admin" for them.
+  const panelName = !personnelOnly ? 'Admin' : user?.roles.includes('COACH') ? 'Coach' : 'Staff';
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -78,7 +84,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
     <>
       {/* md+: fixed collapsible rail */}
       <aside
-        aria-label="Admin navigation"
+        aria-label={`${panelName} navigation`}
         className={[
           'fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface py-4 md:flex',
           'transition-[width] duration-300 ease-out motion-reduce:transition-none',
@@ -87,7 +93,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
       >
         <div className={['mb-6 flex items-center gap-2', collapsed ? 'justify-center px-2' : 'px-5'].join(' ')}>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
-          {!collapsed && <span className="truncate font-display text-base font-bold tracking-wide text-ink">Admin</span>}
+          {!collapsed && <span className="truncate font-display text-base font-bold tracking-wide text-ink">{panelName}</span>}
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 px-3">
@@ -163,7 +169,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
             </svg>
           </button>
           <span className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
-          <span className="font-display text-sm font-bold tracking-wide text-ink">Admin</span>
+          <span className="font-display text-sm font-bold tracking-wide text-ink">{panelName}</span>
         </div>
         <div className="flex items-center">
           {personnelOnly && <PushNotificationsButton iconOnly />}
@@ -185,7 +191,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
           id="admin-drawer"
           role="dialog"
           aria-modal="true"
-          aria-label="Admin navigation"
+          aria-label={`${panelName} navigation`}
           aria-hidden={!drawerOpen}
           className={[
             'absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-surface py-4 shadow-xl',
@@ -196,7 +202,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
           <div className="mb-4 flex items-center justify-between px-5">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-[7px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
-              <span className="font-display text-base font-bold tracking-wide text-ink">Admin</span>
+              <span className="font-display text-base font-bold tracking-wide text-ink">{panelName}</span>
             </div>
             <button
               ref={closeRef}

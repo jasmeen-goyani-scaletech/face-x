@@ -34,7 +34,7 @@ export default function SignInLinkPage() {
     redeemSignInLink(token)
       .then((user) => {
         if (cancelled) return;
-        router.replace(user.roles.includes('ADMIN') ? '/admin' : '/admin/my-teams');
+        router.replace(user.roles.includes('ADMIN') ? '/admin' : user.roles.includes('COACH') ? '/admin/my-teams' : '/admin/roster');
       })
       .catch((e) => {
         if (!cancelled) setError(describeError(e, 'We couldn’t sign you in with this link.'));

@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import RegistrationHeader from '@/components/layout/RegistrationHeader';
 import RequireAuth from '@/components/auth/RequireAuth';
@@ -262,6 +263,11 @@ function StaffWizard() {
                 {reg.invite && <div className="text-[11px] opacity-80 mt-1">{reg.invite.teamName}</div>}
               </div>
               <p className="text-center mt-4"><Chip kind="success">Ready for event-day face scan</Chip></p>
+              <Link href="/admin/roster" className="mt-5 block no-underline">
+                <Button variant="primary" block>
+                  View Roster
+                </Button>
+              </Link>
             </>
           )}
         </Card>

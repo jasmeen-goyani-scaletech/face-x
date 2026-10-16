@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Database } from '../src/infrastructure/database/database';
-import { as, createEvent, createOrg } from './helpers/fixtures';
+import { as, createEvent, createOrg, createTeam } from './helpers/fixtures';
 import { buildApi, createUser, openTestDb } from './helpers/test-app';
 
 /** An admin issues a one-time sign-in link for a coach/staff member who has no password; the link signs them in once. */
@@ -136,5 +136,66 @@ describe('POST /auth/sign-in-link/redeem', () => {
     const res = await request(app).post(REDEEM).send({ token });
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('ACCOUNT_DISABLED');
+  });
+});
+
+describe('what a redeemed link grants', () => {
+  const redeem = async (regId: string) => {
+    const { token } = (await as(app, adminId).post(ISSUE(regId))).body.data as { token: string };
+    const res = await request(app).post(REDEEM).send({ token });
+    expect(res.status).toBe(200);
+    return res.body.data as { accessToken: string; user: { id: string; email: string; roles: string[] } };
+  };
+  const bearer = (accessToken: string) => ({
+    get: (url: string) => request(app).get(url).set('Authorization', `Bearer ${accessToken}`),
+  });
+
+  it('signs in the owner of the registration’s profile, with exactly that account’s roles, never the admin who issued it', async () => {
+    const s = await coach('STAFF');
+    const session = await redeem(s.regId);
+    expect(session.user).toMatchObject({ id: s.user.id, email: s.user.email, roles: ['STAFF'] });
+    expect(session.user.id).not.toBe(adminId);
+  });
+
+  it('keeps a deliberately multi-role account’s real roles (an admin who registered as staff stays an admin)', async () => {
+    const s = await coach('STAFF');
+    await db.query(`insert into public.user_roles (user_id, role) values ($1, 'ADMIN')`, [s.user.id]);
+    const session = await redeem(s.regId);
+    expect(session.user.id).toBe(s.user.id);
+    expect([...session.user.roles].sort()).toEqual(['ADMIN', 'STAFF']);
+  });
+
+  it('gives a staff session no admin access, only the players of an approved, assigned team', async () => {
+    const s = await coach('STAFF');
+    const mine = await createTeam(db, eventId);
+    const other = await createTeam(db, eventId);
+    for (const t of [mine, other]) {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into public.players (first_name, last_name, date_of_birth) values ('Pia', 'Player', '2014-01-01') returning id`,
+      );
+      await db.query(
+        `insert into public.registrations (event_id, registrant_type, player_id, status, team_id) values ($1, 'PLAYER', $2, 'READY_FOR_EVENT', $3)`,
+        [eventId, rows[0]!.id, t],
+      );
+    }
+    await as(app, adminId).post(`/api/v1/admin/registrations/${s.regId}/teams`, { teamId: mine });
+    const session = await redeem(s.regId);
+    const staff = bearer(session.accessToken);
+
+    // Pending (DOCUMENT_REVIEW): no teams, no players.
+    expect((await staff.get('/api/v1/me/teams')).body.data).toEqual([]);
+    expect((await staff.get(`/api/v1/team-access/teams/${mine}/roster`)).status).toBe(404);
+
+    // Approved: the assigned team's players only.
+    await db.query(`update public.registrations set status = 'READY_FOR_EVENT' where id = $1`, [s.regId]);
+    const roster = await staff.get(`/api/v1/team-access/teams/${mine}/roster`);
+    expect(roster.status).toBe(200);
+    expect(roster.body.data).toHaveLength(1);
+    expect((await staff.get(`/api/v1/team-access/teams/${other}/roster`)).status).toBe(404);
+
+    // Never the admin API.
+    for (const path of ['/admin/events', '/admin/teams', `/admin/events/${eventId}/roster`, `/admin/events/${eventId}/review-queue`]) {
+      expect([path, (await staff.get(`/api/v1${path}`)).status]).toEqual([path, 403]);
+    }
   });
 });

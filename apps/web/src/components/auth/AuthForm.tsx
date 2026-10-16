@@ -26,7 +26,7 @@ function Form({ mode }: { mode: Mode }) {
   const { status, user, restore, login, signup } = useAuth();
   // Coaches and staff land on their teams after signing in, unless they were sent here from a specific page.
   const landingFor = (u: ApiUser | null) =>
-    mode === 'login' && !params.get('next') && u && !u.roles.includes('ADMIN') && u.roles.some((r) => r === 'COACH' || r === 'STAFF') ? '/admin/my-teams' : next;
+    mode === 'login' && !params.get('next') && u && !u.roles.includes('ADMIN') && u.roles.some((r) => r === 'COACH' || r === 'STAFF') ? (u.roles.includes('COACH') ? '/admin/my-teams' : '/admin/roster') : next;
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
