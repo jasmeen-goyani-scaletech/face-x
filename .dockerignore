@@ -1,0 +1,12 @@
+**/node_modules
+**/.next
+**/dist
+.git
+.vercel
+.claude
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+apps/web/*
+!apps/web/package.json

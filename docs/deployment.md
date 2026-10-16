@@ -181,3 +181,31 @@ Create a webhook endpoint at `https://<site>/api/v1/webhooks/stripe` for: `check
 4. **Approved consent wording**, the **face provider** and the coach and staff flows are product work, not deployment work.
 5. **Database operations ownership** (no managed PostgreSQL at Hetzner): someone must own backups, upgrades and restores.
 6. **Domain name and TLS** (a Let's Encrypt certificate via Caddy or the load balancer needs the DNS record first).
+
+## 7. Web and API as two separate deployments (Vercel + a container host)
+
+The two apps are independent: the web app only needs the API's address (`API_ORIGIN`, fixed at `next build`), the API only needs its
+database, storage and the site's address (`FRONTEND_URL`). The browser talks to the **web app's own origin**; the web app forwards
+`/api/v1/*` to the API (a rewrite), so the login cookie stays first-party and CORS is not involved. Documents go straight from the
+browser to the storage bucket, and Stripe calls the API directly (never through the web app).
+
+```text
+Browser ──▶ https://<site>  (Vercel, apps/web)  ── /api/v1/* rewrite ──▶  https://<api host>  (container, apps/api) ──▶ PostgreSQL
+Browser ──────────────────────── signed PUT/GET ───────────────────────▶  object storage (Hetzner)
+Stripe  ──────────── POST https://<api host>/api/v1/webhooks/stripe ───▶  API
+```
+
+**API.** `apps/api/Dockerfile` builds an image (from the repository root: `docker build -f apps/api/Dockerfile -t facex-api .`); any host
+that runs a container, or `pnpm install && pnpm --filter @facex/api build` + `node apps/api/dist/server.js`, works. It must stay a single
+long-running instance (rate-limit counters are in memory). Run migrations before each release as the owner user:
+`DATABASE_URL=<owner url> node dist/infrastructure/database/cli.js migrate` (from `apps/api`). On a managed database that offers only
+one role, use that role for both migrations and the app; no migration refers to a role by name.
+Set `TRUST_PROXY_HOPS` to the number of proxies in front of the API (the web host's rewrite plus the API host's own load balancer,
+usually 2), then check that two different visitors are not counted as one address.
+
+**Web.** Vercel project with Root Directory `apps/web` and "Include source files outside of the Root Directory" on (the lockfile is at the
+repository root). Set `API_ORIGIN=https://<api host>` and `NEXT_PUBLIC_SITE_URL=https://<site>` before building, and redeploy after changing
+them. Leave `NEXT_PUBLIC_API_BASE_URL` unset (a direct cross-origin API would need `COOKIE_SAME_SITE=none`, which browsers increasingly block).
+
+**Two addresses must match exactly:** the API's `FRONTEND_URL` is the web site's origin (CORS, the cookie origin check, Stripe return
+URLs, push), and the web build's `API_ORIGIN` is the API's origin.
