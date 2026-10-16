@@ -147,6 +147,7 @@ describe('extracting fields from a document', () => {
       },
       derived: { age: 15 },
       model: 'fake-model-1',
+      verdict: { accepted: true, message: null },
     });
     // The provider got the sniffed type and the field list for the type, nothing chosen by the client.
     expect(fake.calls.length).toBe(before + 1);
@@ -179,6 +180,10 @@ describe('extracting fields from a document', () => {
     });
     expect(res.body.data.derived).toEqual({ age: 15 });
     expect(fake.calls.at(-1)!.mimeType).toBe('application/pdf');
+    // A name and a date of birth that contradict the profile are a rejection, with a message the family can act on.
+    expect(res.body.data.verdict.accepted).toBe(false);
+    expect(res.body.data.verdict.message).toContain('the name on it does not match');
+    expect(res.body.data.verdict.message).toContain('the date of birth on it does not match');
   });
 
   it("checks a coach's certificate by name and expiry against the event date", async () => {
@@ -291,7 +296,9 @@ describe('when extraction fails', () => {
   };
 
   it('reports an unreadable document as a failed result, not an error', async () => {
-    expect((await failed(markedFile(JPEG, 'UNREADABLE'))).failureReason).toBe('UNREADABLE');
+    const data = await failed(markedFile(JPEG, 'UNREADABLE'));
+    expect(data.failureReason).toBe('UNREADABLE');
+    expect(data.verdict).toEqual({ accepted: false, message: expect.stringContaining('could not read') });
   });
 
   it('treats a document from which nothing could be read as unreadable', async () => {
@@ -300,7 +307,10 @@ describe('when extraction fails', () => {
   });
 
   it('reports a provider that throws as PROVIDER_ERROR', async () => {
-    expect((await failed(markedFile(JPEG, 'EXPLODE'))).failureReason).toBe('PROVIDER_ERROR');
+    const data = await failed(markedFile(JPEG, 'EXPLODE'));
+    expect(data.failureReason).toBe('PROVIDER_ERROR');
+    // A check that could not run is not the family's mistake: it never blocks them.
+    expect(data.verdict).toEqual({ accepted: true, message: null });
   });
 
   it('stops a slow provider at the deadline', async () => {
@@ -347,4 +357,139 @@ it('never logs extracted values or provider error text', async () => {
   expect(out).not.toContain('2011-08-29');
   expect(out).not.toContain('Mateialona');
   expect(out).not.toContain('sk-proj-ABCDEFGHIJKLMNOPQRSTUV');
+});
+
+describe('approval by the AI check', () => {
+  const GOOD = { fullName: 'Casey Coach', expiryDate: '2027-06-01' };
+  const COACH_DOCS = ['FIRST_AID_CPR', 'YALF_TACKLE', 'BACKGROUND_CHECK'] as const;
+
+  const statusOf = async (id: string) =>
+    (
+      await db.query<{ status: string; ai_accepted: boolean }>(
+        'select status, ai_accepted from public.documents where id = $1',
+        [id],
+      )
+    ).rows[0]!;
+
+  /** Uploads, AI-checks (as the owner) and submits one coach document. */
+  async function checkedAndSubmitted(o: Owner, documentType: string, fields: Record<string, string>) {
+    const id = await uploaded(o, fieldsFile(fields), { documentType });
+    const res = await extract(o.ownerId, id);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const sub = await as(app, o.ownerId).post(`${D}/${id}/submit`, {});
+    expect(sub.status, JSON.stringify(sub.body)).toBe(200);
+    return id;
+  }
+
+  it('approves the documents, with no human reviewer, once every AI-readable required document was accepted', async () => {
+    const c = await coach();
+    const ids: string[] = [];
+    for (const t of COACH_DOCS) ids.push(await checkedAndSubmitted(c, t, GOOD));
+    for (const id of ids) expect(await statusOf(id)).toEqual({ status: 'APPROVED', ai_accepted: true });
+    const reviews = await db.query<{ reviewer_id: string | null; automated: boolean }>(
+      'select reviewer_id, automated from public.document_reviews where document_id = any($1)',
+      [ids],
+    );
+    expect(reviews.rows).toHaveLength(3);
+    expect(reviews.rows.every((r) => r.reviewer_id === null && r.automated)).toBe(true);
+  });
+
+  it('approves nothing while one required document was rejected by the AI', async () => {
+    const c = await coach();
+    const ids: string[] = [];
+    ids.push(await checkedAndSubmitted(c, 'FIRST_AID_CPR', GOOD));
+    ids.push(await checkedAndSubmitted(c, 'YALF_TACKLE', { ...GOOD, expiryDate: '2020-01-01' }));
+    ids.push(await checkedAndSubmitted(c, 'BACKGROUND_CHECK', GOOD));
+    for (const id of ids) expect((await statusOf(id)).status).toBe('PENDING');
+    expect((await statusOf(ids[1]!)).ai_accepted).toBe(false);
+  });
+
+  it('does not trust the client: a document the API never saw accepted is not approved', async () => {
+    const c = await coach();
+    const ids: string[] = [];
+    ids.push(await checkedAndSubmitted(c, 'FIRST_AID_CPR', GOOD));
+    ids.push(await checkedAndSubmitted(c, 'YALF_TACKLE', GOOD));
+    const unchecked = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    const sub = await as(app, c.ownerId).post(`${D}/${unchecked}/submit`, {});
+    expect(sub.status).toBe(200);
+    for (const id of [...ids, unchecked]) expect((await statusOf(id)).status).toBe('PENDING');
+  });
+});
+
+describe('replacing a document an admin rejected', () => {
+  const GOOD = { fullName: 'Casey Coach', expiryDate: '2027-06-01' };
+  const EXPIRED = { fullName: 'Casey Coach', expiryDate: '2020-01-01' };
+  const review = (id: string, body: object) => as(app, adminA).patch(`${D}/${id}/review`, body);
+  const rowOf = async (id: string) =>
+    (
+      await db.query<{ status: string; ai_accepted: boolean; ai_rejected: boolean }>(
+        'select status, ai_accepted, ai_rejected from public.documents where id = $1',
+        [id],
+      )
+    ).rows[0]!;
+
+  /** A coach whose first aid and YALF were approved and whose background check an admin rejected as expired. */
+  async function rejectedBackgroundCheck() {
+    const c = await coach();
+    const approved: string[] = [];
+    for (const t of ['FIRST_AID_CPR', 'YALF_TACKLE']) {
+      const id = await uploaded(c, fieldsFile(GOOD), { documentType: t });
+      expect((await extract(c.ownerId, id)).body.data.verdict.accepted).toBe(true);
+      await as(app, c.ownerId).post(`${D}/${id}/submit`, {});
+      approved.push(id);
+    }
+    const bad = await uploaded(c, fieldsFile(EXPIRED), { documentType: 'BACKGROUND_CHECK' });
+    expect((await extract(c.ownerId, bad)).body.data.verdict.accepted).toBe(false);
+    await as(app, c.ownerId).post(`${D}/${bad}/submit`, { aiRejected: true });
+    for (const id of approved) expect((await review(id, { decision: 'APPROVED' })).status).toBe(200);
+    const rej = await review(bad, { decision: 'REJECTED', reasonCode: 'EXPIRED', reason: 'This document has expired.' });
+    expect(rej.status, JSON.stringify(rej.body)).toBe(200);
+    return { c, bad };
+  }
+
+  it('is not read by the AI: the extract call is refused and the provider is never asked', async () => {
+    const { c } = await rejectedBackgroundCheck();
+    const fresh = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    const before = fake.calls.length;
+    const res = await extract(c.ownerId, fresh);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('EXTRACTION_NOT_APPLICABLE');
+    expect(fake.calls.length).toBe(before);
+    expect(await rowOf(fresh)).toMatchObject({ status: 'PENDING', ai_accepted: false });
+  });
+
+  it('waits for an admin even when every other document is approved, then an admin can approve it', async () => {
+    const { c } = await rejectedBackgroundCheck();
+    const fresh = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    await extract(c.ownerId, fresh);
+    const sub = await as(app, c.ownerId).post(`${D}/${fresh}/submit`, {});
+    expect(sub.status, JSON.stringify(sub.body)).toBe(200);
+    // No automatic approval, and no AI flag carried over from the rejected file.
+    expect(await rowOf(fresh)).toEqual({ status: 'PENDING', ai_accepted: false, ai_rejected: false });
+    const auto = await db.query('select 1 from public.document_reviews where document_id = $1', [fresh]);
+    expect(auto.rowCount).toBe(0);
+
+    const approved = await review(fresh, { decision: 'APPROVED' });
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect((await rowOf(fresh)).status).toBe('APPROVED');
+  });
+
+  it('can be rejected again by an admin and replaced once more, still without the AI', async () => {
+    const { c } = await rejectedBackgroundCheck();
+    const second = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    await as(app, c.ownerId).post(`${D}/${second}/submit`, {});
+    expect(
+      (await review(second, { decision: 'REJECTED', reasonCode: 'UNREADABLE', reason: 'Not legible.' })).status,
+    ).toBe(200);
+    const third = await uploaded(c, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    expect((await extract(c.ownerId, third)).status).toBe(409);
+  });
+
+  it('leaves first uploads alone: the AI still checks a document nobody has rejected', async () => {
+    const other = await coach();
+    const id = await uploaded(other, fieldsFile(GOOD), { documentType: 'BACKGROUND_CHECK' });
+    const res = await extract(other.ownerId, id);
+    expect(res.status).toBe(200);
+    expect(res.body.data.verdict.accepted).toBe(true);
+  });
 });

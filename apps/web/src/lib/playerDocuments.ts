@@ -27,33 +27,9 @@ export function missingRequiredDocuments(reg: PlayerRegistration): (typeof PLAYE
 
 // ---- file rules (shared by the upload UI) ----
 
-export const MAX_IMAGE_BYTES = 15 * 1024 * 1024; // photos are compressed before saving, so the limit can be generous
-export const MAX_PDF_BYTES = 1_500_000; // PDFs are kept as-is in the browser, so they must be small
-/** When files go to the API instead of browser storage, the API's own limit applies (5 MB for documents by default). */
-export const MAX_PDF_BYTES_UPLOADED = 5 * 1024 * 1024;
+export * from './documentFileRules';
+
 const MAX_IMAGE_EDGE = 1600;
-
-export function formatFileSize(bytes?: number): string {
-  if (bytes === undefined) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Returns a precise, user-facing message if the file can't be accepted, else null. */
-export function validateDocumentFile(file: File, maxPdfBytes: number = MAX_PDF_BYTES): string | null {
-  const isImage = file.type.startsWith('image/');
-  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
-  if (!isImage && !isPdf) return `“${file.name}” isn’t a supported file type. Upload a JPG, PNG or PDF.`;
-  if (file.size === 0) return `“${file.name}” is empty. Choose a different file.`;
-  if (isImage && file.size > MAX_IMAGE_BYTES) {
-    return `This photo is ${formatFileSize(file.size)}. The maximum is ${formatFileSize(MAX_IMAGE_BYTES)} — try a smaller photo or a scan at lower resolution.`;
-  }
-  if (isPdf && file.size > maxPdfBytes) {
-    return `This PDF is ${formatFileSize(file.size)}. PDFs must be under ${formatFileSize(maxPdfBytes)} — upload a smaller PDF, or a photo of the document instead.`;
-  }
-  return null;
-}
 
 /** Shrinks large photos (long edge 1600px, JPEG) so several documents fit in browser storage. Falls back to the original. */
 function compressImage(dataUrl: string): Promise<string> {

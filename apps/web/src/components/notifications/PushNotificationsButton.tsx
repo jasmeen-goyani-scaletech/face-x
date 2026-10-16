@@ -16,7 +16,7 @@ const LABEL: Record<'off' | 'on' | 'denied', { text: string; title: string }> = 
  * page load), shows nothing where push can't work, and never gets in the way of registration. While signed in it quietly
  * re-registers an existing subscription so the server's copy stays current.
  */
-export default function PushNotificationsButton() {
+export default function PushNotificationsButton({ iconOnly = false }: { /** Just the bell (a collapsed side rail). */ iconOnly?: boolean } = {}) {
   const { status } = useAuth();
   const [state, setState] = useState<PushState | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,8 +64,8 @@ export default function PushNotificationsButton() {
       ].join(' ')}
     >
       {state === 'on' ? <BellIcon size={16} /> : <BellOffIcon size={16} />}
-      <span className="hidden sm:inline">{label.text}</span>
-      <span className="sr-only sm:hidden">{label.text}. {label.title}</span>
+      {!iconOnly && <span className="hidden sm:inline">{label.text}</span>}
+      <span className={iconOnly ? "sr-only" : "sr-only sm:hidden"}>{label.text}. {label.title}</span>
     </button>
   );
 }

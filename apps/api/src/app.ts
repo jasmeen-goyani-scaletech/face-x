@@ -18,6 +18,7 @@ import type { ObjectReader } from './infrastructure/storage/object-reader';
 import type { AuthRateLimitConfig } from './middleware/rate-limit';
 import { createAuthModule, createAuthRepository } from './modules/auth';
 import { createCoachTeamModule } from './modules/coachteam';
+import { createTeamAccessModule } from './modules/teamaccess';
 import { createConsentsModule } from './modules/consents';
 import { createDocumentsModule } from './modules/documents';
 import { createFaceModule, createFaceServiceFor, type FaceRecognitionConfig } from './modules/face';
@@ -82,6 +83,10 @@ export interface AppDeps {
   extractionsPerMinute?: number;
   /** Stripe (or another provider). Absent when STRIPE_SECRET_KEY is not configured: payment endpoints answer 503. */
   payments?: PaymentProvider;
+  /** A Stripe Payment Link (test mode) that player payments are sent to instead of a Checkout Session. */
+  paymentLinkUrl?: string;
+  /** What that link charges, in cents: a registration with another fee is refused before the redirect. */
+  paymentLinkAmountCents?: number;
   /** Web Push delivery (VAPID). Absent when VAPID_* is not configured: subscribing answers 503 and nothing is sent. */
   pushSender?: PushSender;
   /** Per-IP requests per minute for starting a checkout (default 10). Raised only by tests. */
@@ -101,6 +106,8 @@ export function createApp({
   rateLimits,
   storage,
   payments,
+  paymentLinkUrl,
+  paymentLinkAmountCents,
   pushSender,
   faceRecognition,
   documentExtraction,
@@ -142,6 +149,8 @@ export function createApp({
     auth: auth.middleware,
     provider: payments,
     returnBaseUrl: env.FRONTEND_URL[0] ?? '',
+    paymentLinkUrl,
+    paymentLinkAmountCents,
     logger,
     checkoutRequestsPerMinute,
   });
@@ -242,6 +251,7 @@ export function createApp({
     }),
   );
   app.use('/api/v1', createCoachTeamModule(db, auth.middleware));
+  app.use('/api/v1', createTeamAccessModule(db, auth.middleware));
   app.use(
     '/api/v1',
     createConsentsModule(db, auth.middleware, readiness.trigger, {
@@ -250,7 +260,7 @@ export function createApp({
   );
   app.use('/api/v1', notifications.router);
   app.use('/api/v1', paymentsModule.router);
-  app.use('/api/v1', createAdminModule(db, auth.middleware));
+  app.use('/api/v1', createAdminModule(db, auth.middleware, auth.issueSignInLink));
   app.use('/api/v1', readiness.router);
   app.use(
     '/api/v1',

@@ -1,4 +1,4 @@
-import type { GuardianDto } from '../players/types';
+import type { AgeDivision, GuardianDto } from '../players/types';
 import type { StaffProfileType, StaffRole } from '../staff/types';
 import type { RegistrationStatus } from './transitions';
 
@@ -30,6 +30,7 @@ export interface PlayerRegistrationDto extends RegistrationBase {
     email: string | null;
     phone: string | null;
     schoolId: string | null;
+    ageDivision: AgeDivision | null;
   };
   guardians: GuardianDto[];
 }

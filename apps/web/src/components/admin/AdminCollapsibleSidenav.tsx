@@ -3,7 +3,9 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { logout as apiLogout } from '@/lib/api/auth';
+import PushNotificationsButton from '@/components/notifications/PushNotificationsButton';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, LogoutIcon, ShieldIcon, TrophyIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
 
 const NAV = [
@@ -13,6 +15,12 @@ const NAV = [
   { href: '/admin/coaches', label: 'Coaches', icon: UsersIcon },
   { href: '/admin/staff', label: 'Staff Members', icon: ShieldIcon },
   { href: '/admin/event-day', label: 'Event Day', icon: CalendarIcon }
+];
+
+/** What a coach or staff member sees: only the teams they were assigned to. */
+const PERSONNEL_NAV = [
+  { href: '/admin/my-teams', label: 'My Teams', icon: UsersIcon },
+  { href: '/admin/roster', label: 'Roster', icon: UsersIcon }
 ];
 
 async function signOut() {
@@ -49,7 +57,13 @@ const itemBase =
  *  - below md (phones): a top bar with a menu button that opens a slide-over drawer.
  * `collapsed` and `onToggle` come from `useAdminSidenav`, which persists the choice.
  */
-export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnelOnly = false }: { collapsed: boolean; onToggle: () => void; personnelOnly?: boolean }) {
+  const { user } = useAuth();
+  // Staff have no team of their own: their navigation is the roster alone.
+  const isStaffOnly = personnelOnly && !!user && !user.roles.includes('COACH');
+  const nav = isStaffOnly ? PERSONNEL_NAV.filter((i) => i.href === '/admin/roster') : personnelOnly ? PERSONNEL_NAV : NAV;
+  // Coaches and staff are not admins, so the panel is never labelled "Admin" for them.
+  const panelName = !personnelOnly ? 'Admin' : user?.roles.includes('COACH') ? 'Coach' : 'Staff';
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -70,7 +84,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
     <>
       {/* md+: fixed collapsible rail */}
       <aside
-        aria-label="Admin navigation"
+        aria-label={`${panelName} navigation`}
         className={[
           'fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface py-4 md:flex',
           'transition-[width] duration-300 ease-out motion-reduce:transition-none',
@@ -79,11 +93,11 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
       >
         <div className={['mb-6 flex items-center gap-2', collapsed ? 'justify-center px-2' : 'px-5'].join(' ')}>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
-          {!collapsed && <span className="truncate font-display text-base font-bold tracking-wide text-ink">Admin</span>}
+          {!collapsed && <span className="truncate font-display text-base font-bold tracking-wide text-ink">{panelName}</span>}
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 px-3">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = isActive(item.href);
             const Icon = item.icon;
             return (
@@ -107,6 +121,12 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
         </nav>
 
         <div className="mt-4 flex flex-col gap-0.5 px-3">
+          {/* Coaches and staff are told when a document is reviewed; this is where they turn that on for this device. */}
+          {personnelOnly && (
+            <div className={collapsed ? "flex justify-center py-1" : "px-1 py-1"}>
+              <PushNotificationsButton iconOnly={collapsed} />
+            </div>
+          )}
           <button
             type="button"
             onClick={onToggle}
@@ -149,11 +169,14 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
             </svg>
           </button>
           <span className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
-          <span className="font-display text-sm font-bold tracking-wide text-ink">Admin</span>
+          <span className="font-display text-sm font-bold tracking-wide text-ink">{panelName}</span>
         </div>
-        <button type="button" onClick={signOut} className="flex items-center gap-1.5 px-2 py-2 text-[12.5px] font-semibold text-ink-soft">
-          <LogoutIcon size={14} /> Sign out
-        </button>
+        <div className="flex items-center">
+          {personnelOnly && <PushNotificationsButton iconOnly />}
+          <button type="button" onClick={signOut} className="flex items-center gap-1.5 px-2 py-2 text-[12.5px] font-semibold text-ink-soft">
+            <LogoutIcon size={14} /> Sign out
+          </button>
+        </div>
       </div>
 
       <div className={['fixed inset-0 z-40 md:hidden', drawerOpen ? '' : 'pointer-events-none'].join(' ')}>
@@ -168,7 +191,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
           id="admin-drawer"
           role="dialog"
           aria-modal="true"
-          aria-label="Admin navigation"
+          aria-label={`${panelName} navigation`}
           aria-hidden={!drawerOpen}
           className={[
             'absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-surface py-4 shadow-xl',
@@ -179,7 +202,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
           <div className="mb-4 flex items-center justify-between px-5">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-[7px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
-              <span className="font-display text-base font-bold tracking-wide text-ink">Admin</span>
+              <span className="font-display text-base font-bold tracking-wide text-ink">{panelName}</span>
             </div>
             <button
               ref={closeRef}
@@ -192,7 +215,7 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle }: { colla
             </button>
           </div>
           <nav className="flex flex-1 flex-col gap-0.5 px-3">
-            {NAV.map((item) => {
+            {nav.map((item) => {
               const active = isActive(item.href);
               const Icon = item.icon;
               return (

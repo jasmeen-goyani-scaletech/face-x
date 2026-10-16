@@ -4,6 +4,7 @@ import { getRequestMeta } from '../../shared/http/request-meta';
 import { uuid } from '../../shared/validation/fields';
 import {
   createEventBodySchema,
+  assignTeamBodySchema,
   createTeamBodySchema,
   eventAccessBodySchema,
   listEventsQuerySchema,
@@ -34,6 +35,10 @@ export interface AdminController {
   getTeam: RequestHandler;
   updateTeam: RequestHandler;
   roster: RequestHandler;
+  listTeamAssignments: RequestHandler;
+  addTeamAssignment: RequestHandler;
+  removeTeamAssignment: RequestHandler;
+  createSignInLink: RequestHandler;
 }
 
 const caller = (req: Parameters<RequestHandler>[0]) => {
@@ -154,6 +159,51 @@ export function createAdminController(service: AdminService): AdminController {
       );
       res.set('Cache-Control', 'no-store');
       res.json({ success: true, data });
+    },
+
+    listTeamAssignments: async (req, res) => {
+      const registrationId = uuid.parse(req.params.registrationId);
+      res.set('Cache-Control', 'no-store');
+      res.json({
+        success: true,
+        data: await service.listTeamAssignments(caller(req), registrationId),
+      });
+    },
+
+    addTeamAssignment: async (req, res) => {
+      const registrationId = uuid.parse(req.params.registrationId);
+      const body = assignTeamBodySchema.parse(req.body);
+      const data = await service.addTeamAssignment(
+        caller(req),
+        registrationId,
+        body,
+        getRequestMeta(req),
+      );
+      res.status(201).json({ success: true, data });
+    },
+
+    removeTeamAssignment: async (req, res) => {
+      const registrationId = uuid.parse(req.params.registrationId);
+      const teamId = uuid.parse(req.params.teamId);
+      const data = await service.removeTeamAssignment(
+        caller(req),
+        registrationId,
+        teamId,
+        getRequestMeta(req),
+      );
+      res.json({ success: true, data });
+    },
+
+    createSignInLink: async (req, res) => {
+      const registrationId = uuid.parse(req.params.registrationId);
+      const data = await service.createSignInLink(
+        caller(req),
+        registrationId,
+        getRequestMeta(req),
+      );
+      // The token is a credential: it must not be cached anywhere.
+      res.set('Cache-Control', 'no-store');
+      res.status(201).json({ success: true, data });
     },
 
     rejectRegistration: async (req, res) => {

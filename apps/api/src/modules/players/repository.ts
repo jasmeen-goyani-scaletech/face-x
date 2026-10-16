@@ -2,7 +2,7 @@ import type { Database, Queryable } from '../../infrastructure/database/database
 import type { RequestMeta } from '../../shared/http/request-meta';
 import { recordAudit, type AuditAction } from '../audit';
 import { ownsPlayerSql } from './ownership';
-import type { GuardianDto, PlayerDetail, PlayerDto } from './types';
+import type { AgeDivision, GuardianDto, PlayerDetail, PlayerDto } from './types';
 
 export interface PlayerView {
   player: PlayerDetail;
@@ -18,6 +18,7 @@ export interface PlayerPatch {
   email?: string | null;
   phone?: string | null;
   schoolId?: string | null;
+  ageDivision?: AgeDivision;
 }
 
 export interface ExistingParent {
@@ -36,6 +37,7 @@ export interface NewPlayer {
   email: string | null;
   phone: string | null;
   schoolId: string | null;
+  ageDivision: AgeDivision | null;
 }
 
 export interface PlayerRepository {
@@ -102,12 +104,13 @@ interface PlayerRow {
   email: string | null;
   phone: string | null;
   school_id: string | null;
+  age_division: AgeDivision | null;
   created_at: Date;
   updated_at: Date;
 }
 
 const PLAYER_COLUMNS = `pl.id, pl.first_name, pl.last_name, pl.date_of_birth::text as dob,
-  pl.email, pl.phone, pl.school_id, pl.created_at, pl.updated_at`;
+  pl.email, pl.phone, pl.school_id, pl.age_division, pl.created_at, pl.updated_at`;
 
 export const toPlayerDto = (r: PlayerRow): PlayerDto => ({
   id: r.id,
@@ -117,6 +120,7 @@ export const toPlayerDto = (r: PlayerRow): PlayerDto => ({
   email: r.email,
   phone: r.phone,
   schoolId: r.school_id,
+  ageDivision: r.age_division,
   createdAt: r.created_at.toISOString(),
   updatedAt: r.updated_at.toISOString(),
 });
@@ -157,6 +161,7 @@ const PATCH_COLUMNS: Record<keyof PlayerPatch, string> = {
   email: 'email',
   phone: 'phone',
   schoolId: 'school_id',
+  ageDivision: 'age_division',
 };
 
 function build(q: Queryable, run: PlayerRepository['transaction']): PlayerRepository {
@@ -165,8 +170,8 @@ function build(q: Queryable, run: PlayerRepository['transaction']): PlayerReposi
 
     async insertPlayer(i) {
       const { rows } = await q.query<{ id: string }>(
-        `insert into public.players (user_id, created_by, first_name, last_name, date_of_birth, email, phone, school_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
+        `insert into public.players (user_id, created_by, first_name, last_name, date_of_birth, email, phone, school_id, age_division)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          on conflict (user_id) do nothing
          returning id`,
         [
@@ -178,6 +183,7 @@ function build(q: Queryable, run: PlayerRepository['transaction']): PlayerReposi
           i.email,
           i.phone,
           i.schoolId,
+          i.ageDivision,
         ],
       );
       return rows[0]?.id ?? null;

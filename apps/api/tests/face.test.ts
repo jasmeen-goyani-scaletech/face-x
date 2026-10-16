@@ -249,6 +249,7 @@ describe('POST /players/:id/face-profile: enroll', () => {
       firstName: 'Ann',
       lastName: 'Adult',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     const reg = await as(app, player.id).post(R, {

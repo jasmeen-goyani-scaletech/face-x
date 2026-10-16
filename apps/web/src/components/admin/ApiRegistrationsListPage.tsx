@@ -18,20 +18,24 @@ import { formatEventStart, initialsOf } from '@/lib/format';
 import { PAGE_SIZES } from '@/lib/usePagination';
 import { useRevalidateOnFocus } from '@/lib/useRevalidateOnFocus';
 
-type Filter = 'all' | 'review' | 'ready' | 'rejected';
+type Filter = 'all' | 'pending' | 'approved' | 'flagged' | 'disabled';
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
-  { key: 'review', label: 'Needs review' },
-  { key: 'ready', label: 'Ready' },
-  { key: 'rejected', label: 'Rejected' }
+  { key: 'pending', label: 'Pending' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'flagged', label: 'Flagged' },
+  { key: 'disabled', label: 'Disabled' }
 ];
 
-const FILTER_QUERY: Record<Filter, Pick<ListAdminRegistrationsQuery, 'status' | 'documentsPending'>> = {
+// Pending: documents waiting for a decision. Approved: cleared for the event. Flagged: a document the AI check turned down or an
+// admin rejected. Disabled: event-day access switched off.
+const FILTER_QUERY: Record<Filter, Pick<ListAdminRegistrationsQuery, 'status' | 'documentsPending' | 'eventAccessDisabled'>> = {
   all: {},
-  review: { documentsPending: true },
-  ready: { status: 'READY_FOR_EVENT' },
-  rejected: { status: 'REJECTED' }
+  pending: { documentsPending: true },
+  approved: { status: 'READY_FOR_EVENT' },
+  flagged: { status: 'FLAGGED' },
+  disabled: { eventAccessDisabled: true }
 };
 
 const STATUS_KIND: Record<ApiRegistrationStatus, 'success' | 'warning' | 'danger' | 'neutral' | 'info'> = {
@@ -55,10 +59,10 @@ const KIND: Record<RegistrantKind, { title: string; description: string; noun: s
 };
 
 /** Who a list row is about, whichever kind of registration it is. */
-function personOf(r: ApiAdminRegistrationRow): { firstName: string; lastName: string; role: string | null } {
-  if (r.registrantType === 'PLAYER') return { ...r.player, role: null };
+function personOf(r: ApiAdminRegistrationRow): { firstName: string; lastName: string; role: string | null; division: string | null } {
+  if (r.registrantType === 'PLAYER') return { ...r.player, role: null, division: r.player.ageDivision };
   const p = r.staffProfile;
-  return { firstName: p.firstName, lastName: p.lastName, role: p.staffRole ? STAFF_ROLE_FROM_API[p.staffRole as ApiStaffRole] : null };
+  return { firstName: p.firstName, lastName: p.lastName, role: p.staffRole ? STAFF_ROLE_FROM_API[p.staffRole as ApiStaffRole] : null, division: null };
 }
 
 /** The admin list of one kind of registration (players, coaches or staff), read from the API: searched, filtered and paged on the server. */
@@ -262,13 +266,14 @@ export default function ApiRegistrationsListPage({ kind = 'PLAYER' }: { kind?: R
                     </div>
                     <div className="text-[12.5px] text-ink-soft truncate">
                       {person.role ? `${person.role} · ` : ''}
-                      {r.team?.name ?? '—'} · {r.registrationNumber}
+                      {r.team ? `${r.team.name}${person.division ? ` ${person.division}` : ''}` : (person.division ?? '—')} · {r.registrationNumber}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
                     {r.eventAccessDisabled && <Chip kind="danger">Disabled</Chip>}
                     {r.documents.inReview > 0 && <Chip kind="warning">{r.documents.inReview} to review</Chip>}
                     {r.documents.rejected > 0 && <Chip kind="danger">{r.documents.rejected} rejected</Chip>}
+                    {r.documents.aiRejected > 0 && <Chip kind="danger">• AI rejected</Chip>}
                     <Chip kind={STATUS_KIND[r.status]}>{STATUS_LABEL[r.status]}</Chip>
                   </div>
                   <ChevronRightIcon size={18} className="text-ink-faint shrink-0" />

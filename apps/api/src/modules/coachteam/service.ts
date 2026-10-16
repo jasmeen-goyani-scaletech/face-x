@@ -114,10 +114,8 @@ export function createCoachTeamService(
       }
       const everyone = await admin.roster(reg.event.id, reg.teamId);
       return everyone
-        .filter(
-          (m): m is typeof m & { registrantType: 'PLAYER' | 'STAFF' } =>
-            m.registrantType !== 'COACH',
-        )
+        // Players only: staff details are for admins.
+        .filter((m): m is typeof m & { registrantType: 'PLAYER' } => m.registrantType === 'PLAYER')
         .map((m) => ({
           registrationId: m.registrationId,
           registrationNumber: m.registrationNumber,

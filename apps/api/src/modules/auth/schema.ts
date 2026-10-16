@@ -27,6 +27,9 @@ export const loginBodySchema = z.object({
   password: z.string().min(1).max(128),
 });
 
+/** The token from an admin-issued sign-in link (same shape as a refresh token: 32 random bytes, base64url). */
+export const signInLinkBodySchema = z.object({ token: z.string().min(20).max(100) });
+
 /** A visitor filling in a public registration form: the contact email plus the role they register as (never ADMIN). */
 export const guestBodySchema = z.object({
   email,

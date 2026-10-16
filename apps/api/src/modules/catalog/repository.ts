@@ -33,12 +33,18 @@ interface TeamRow {
   team_name: string;
   team_club: string;
   team_division: string;
+  full_player: boolean;
+  full_coach: boolean;
+  full_staff: boolean;
 }
 
 const EVENT_COLUMNS = `e.id, e.name, e.description, e.location, e.timezone, e.starts_at, e.ends_at,
                        e.registration_fee_cents, e.currency, e.status`;
 const TEAM_COLUMNS = `t.id as team_id, t.event_id as team_event_id, t.name as team_name,
-                      t.club as team_club, t.division as team_division`;
+                      t.club as team_club, t.division as team_division,
+                      (t.max_players is not null and (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'PLAYER' and r.status not in ('DRAFT', 'CANCELLED', 'REJECTED')) >= t.max_players) as full_player,
+                      (t.max_coaches is not null and (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'COACH' and r.status not in ('DRAFT', 'CANCELLED', 'REJECTED')) >= t.max_coaches) as full_coach,
+                      (t.max_staff is not null and (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'STAFF' and r.status not in ('DRAFT', 'CANCELLED', 'REJECTED')) >= t.max_staff) as full_staff`;
 
 const toEvent = (r: EventRow): EventDto => ({
   id: r.id,
@@ -59,6 +65,7 @@ const toTeam = (r: TeamRow): TeamDto => ({
   name: r.team_name,
   club: r.team_club,
   division: r.team_division,
+  full: { player: r.full_player, coach: r.full_coach, staff: r.full_staff },
 });
 
 export function createCatalogRepository(db: Database): CatalogRepository {

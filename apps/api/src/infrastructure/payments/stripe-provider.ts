@@ -125,7 +125,9 @@ function normalize(event: Stripe.Event): ProviderEvent {
         paymentIntentId: nullIfEmpty(paymentIntent),
         amountCents: s.amount_total ?? null,
         currency: nullIfEmpty(s.currency)?.toLowerCase() ?? null,
-        paymentId: nullIfEmpty(s.metadata?.paymentId),
+        // A Checkout Session carries our ids in metadata; a Payment Link session has none, so the payment id we put in the
+        // link's client_reference_id is used instead.
+        paymentId: nullIfEmpty(s.metadata?.paymentId) ?? nullIfEmpty(s.client_reference_id),
         registrationId: nullIfEmpty(s.metadata?.registrationId),
         failureCode:
           kind === 'FAILED'

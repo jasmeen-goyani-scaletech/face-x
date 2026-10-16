@@ -191,10 +191,10 @@ component's state (or the page's cache), so switching tabs or re-rendering doesn
 
 These shipped with the extraction API and the frontend should follow them:
 
-- **One size limit for every document:** 5 MB by default (`DOCUMENT_MAX_BYTES` on the server, at most 10 MB). The web limits in
+- **One size limit for every document:** 5 MB (`DOCUMENT_MAX_BYTES` on the server, which cannot be set above 5 MB). The web limits in
   `lib/registration/uploads.ts` and `lib/playerDocuments.ts` are already set to 5 MB. The profile photo stays at 2 MB.
-- **DOCX is now accepted by the API** (`application/vnd.openxmlformats-officedocument.wordprocessingml.document`). Legacy `.doc` is
-  refused. The web app does not offer DOCX yet. To add it:
+- **The API accepts PDF, JPEG, PNG, WebP, DOC and DOCX.** The web app offers all of them (`lib/documentFileRules.ts`). WebP and `.doc` are stored but
+  the extraction cannot read them (`UNSUPPORTED`). DOCX was added as follows (done):
   - add `.docx` and the DOCX MIME type to the `accept` attribute in `components/ui/DocumentUploadRow.tsx`;
   - allow it in `validateDocumentFile` (`lib/playerDocuments.ts`) and pass it through unchanged in `prepareFile`
     (`lib/registration/uploads.ts`), like a PDF (no re-encoding);
@@ -268,6 +268,6 @@ of them at cached rates when calls come close together, which only lowers the co
 - [ ] `FAILED` results show the reason; retry only for `TIMEOUT` / `PROVIDER_ERROR`.
 - [ ] 503 `EXTRACTION_NOT_CONFIGURED` hides the panel for the session.
 - [ ] No calls on render loops, list pages or polling; one call per document view.
-- [ ] (Optional) registrant hint after upload, non-blocking.
-- [ ] (Optional) DOCX upload support (section 7).
+- [x] Registrant check after upload (`lib/registration/useAiDocumentCheck.ts`). Product decision: unlike the "hint only" above, the first AI rejection of a document type holds it back with the AI's message; the second is let through and sent as `aiRejected: true` on submit.
+- [x] DOCX / DOC / WebP upload support (section 7).
 - [ ] Budget alert set on the OpenAI account; per-call cost re-checked on the dashboard after the first event (section 8).

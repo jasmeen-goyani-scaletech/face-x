@@ -26,6 +26,26 @@ export interface AdminTeam {
   status: 'ACTIVE' | 'DISABLED';
   /** Registrations (any status except draft / cancelled) attached to the team, by kind. */
   registrations: { players: number; coaches: number; staff: number };
+  /**
+   * Registration limits per kind (null max = unlimited, the default). `used` counts the registrations that hold a place:
+   * every status except draft, cancelled and rejected. A limit below `used` blocks new registrations only.
+   */
+  limits: { players: TeamLimit; coaches: TeamLimit; staff: TeamLimit };
+}
+
+export interface TeamLimit {
+  max: number | null;
+  used: number;
+}
+
+/** A team a coach or staff member has been assigned to. */
+export interface TeamAssignment {
+  teamId: string;
+  name: string;
+  club: string;
+  division: string;
+  status: 'ACTIVE' | 'DISABLED';
+  assignedAt: string;
 }
 
 export interface Page<T> {
@@ -44,6 +64,8 @@ export interface AdminDocumentCounts {
   rejected: number;
   /** Uploaded by the registrant but not yet sent for review. */
   notSubmitted: number;
+  /** Documents the AI check turned down twice before the registrant sent them on: look at these by eye. */
+  aiRejected: number;
 }
 
 /** What an admin sees for one player registration in a list. Documents are counted by their newest version per type. */
@@ -54,7 +76,13 @@ export interface AdminPlayerRow {
   status: RegistrationStatus;
   submittedAt: string | null;
   createdAt: string;
-  player: { id: string; firstName: string; lastName: string; dateOfBirth: string };
+  player: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string;
+    ageDivision: 'U12' | 'U14' | 'U16' | null;
+  };
   team: { id: string; name: string } | null;
   /** NOT_STARTED when no payment attempt exists. */
   paymentStatus: 'NOT_STARTED' | 'PAYMENT_PENDING' | 'PAID' | 'FAILED' | 'CANCELLED' | 'REFUNDED';

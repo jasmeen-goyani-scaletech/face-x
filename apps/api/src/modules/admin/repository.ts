@@ -31,6 +31,7 @@ import type {
   EventSummary,
   Page,
   ReviewQueueItem,
+  TeamAssignment,
 } from './types';
 
 export interface RegistrationForAdmin {
@@ -41,6 +42,14 @@ export interface RegistrationForAdmin {
   organizationId: string;
   eventAccessDisabled: boolean;
   eventAccessDisabledReason: string | null;
+}
+
+export interface PersonnelRegistrationRef {
+  registrationId: string;
+  staffProfileId: string;
+  eventId: string;
+  organizationId: string;
+  registrantType: 'COACH' | 'STAFF';
 }
 
 export interface AdminRepository {
@@ -79,6 +88,19 @@ export interface AdminRepository {
   ): Promise<{ team: AdminTeam; organizationId: string } | null>;
   /** Null when another team of the event already has this name and club. */
   updateTeam(teamId: string, patch: UpdateTeamBody): Promise<AdminTeam | null>;
+
+  /** A coach/staff registration with the profile and event it belongs to (null for a player's or an unknown id). Optionally row-locked. */
+  findPersonnelRegistration(
+    registrationId: string,
+    lock?: boolean,
+  ): Promise<PersonnelRegistrationRef | null>;
+  /** The account a coach/staff profile belongs to. */
+  findStaffUserId(staffProfileId: string): Promise<string | null>;
+  listAssignments(staffProfileId: string): Promise<TeamAssignment[]>;
+  /** False when the team was already assigned. */
+  addAssignment(staffProfileId: string, teamId: string, assignedBy: string): Promise<boolean>;
+  /** False when the team was not assigned. */
+  removeAssignment(staffProfileId: string, teamId: string): Promise<boolean>;
 
   /** The event's day-of roster, or only one team's people when `teamId` is given. */
   roster(
@@ -158,8 +180,23 @@ interface TeamRow {
   players: string;
   coaches: string;
   staff: string;
+  max_players: number | null;
+  max_coaches: number | null;
+  max_staff: number | null;
+  used_players: string;
+  used_coaches: string;
+  used_staff: string;
 }
+// "Holds a place" = every status except DRAFT, CANCELLED and REJECTED (the same people the event roster lists).
+const HOLDS_PLACE = `r.status not in ('DRAFT', 'CANCELLED', 'REJECTED')`;
 const TEAM_COLUMNS = `t.id, t.event_id, t.name, t.club, t.division, t.invite_code, t.status,
+  t.max_players, t.max_coaches, t.max_staff,
+  (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'PLAYER'
+     and ${HOLDS_PLACE}) as used_players,
+  (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'COACH'
+     and ${HOLDS_PLACE}) as used_coaches,
+  (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'STAFF'
+     and ${HOLDS_PLACE}) as used_staff,
   (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'PLAYER'
      and r.status not in ('DRAFT', 'CANCELLED')) as players,
   (select count(*) from public.registrations r where r.team_id = t.id and r.registrant_type = 'COACH'
@@ -175,6 +212,11 @@ const toAdminTeam = (t: TeamRow): AdminTeam => ({
   inviteCode: t.invite_code,
   status: t.status,
   registrations: { players: Number(t.players), coaches: Number(t.coaches), staff: Number(t.staff) },
+  limits: {
+    players: { max: t.max_players, used: Number(t.used_players) },
+    coaches: { max: t.max_coaches, used: Number(t.used_coaches) },
+    staff: { max: t.max_staff, used: Number(t.used_staff) },
+  },
 });
 
 async function findTeamIn(
@@ -373,6 +415,9 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         club: 'club',
         division: 'division',
         status: 'status',
+        maxPlayers: 'max_players',
+        maxCoaches: 'max_coaches',
+        maxStaff: 'max_staff',
       };
       const sets: string[] = [];
       const values: unknown[] = [teamId];
@@ -393,6 +438,82 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
       }
       await q.query('release savepoint team_update');
       return (await findTeamIn(q, teamId))!.team;
+    },
+
+    async findPersonnelRegistration(registrationId, lock = false) {
+      const { rows } = await q.query<{
+        id: string;
+        staff_profile_id: string;
+        event_id: string;
+        organization_id: string;
+        registrant_type: 'COACH' | 'STAFF';
+      }>(
+        `select r.id, r.staff_profile_id, r.event_id, e.organization_id, r.registrant_type
+           from public.registrations r join public.events e on e.id = r.event_id
+          where r.id = $1 and r.registrant_type in ('COACH', 'STAFF')
+          ${lock ? 'for update of r' : ''}`,
+        [registrationId],
+      );
+      const r = rows[0];
+      return r
+        ? {
+            registrationId: r.id,
+            staffProfileId: r.staff_profile_id,
+            eventId: r.event_id,
+            organizationId: r.organization_id,
+            registrantType: r.registrant_type,
+          }
+        : null;
+    },
+
+    async findStaffUserId(staffProfileId) {
+      const { rows } = await q.query<{ user_id: string }>(
+        'select user_id from public.staff_profiles where id = $1',
+        [staffProfileId],
+      );
+      return rows[0]?.user_id ?? null;
+    },
+
+    async listAssignments(staffProfileId) {
+      const { rows } = await q.query<{
+        team_id: string;
+        name: string;
+        club: string;
+        division: string;
+        status: 'ACTIVE' | 'DISABLED';
+        created_at: Date;
+      }>(
+        `select a.team_id, t.name, t.club, t.division, t.status, a.created_at
+           from public.team_assignments a join public.teams t on t.id = a.team_id
+          where a.staff_profile_id = $1
+          order by lower(t.name), t.id`,
+        [staffProfileId],
+      );
+      return rows.map((r) => ({
+        teamId: r.team_id,
+        name: r.name,
+        club: r.club,
+        division: r.division,
+        status: r.status,
+        assignedAt: iso(r.created_at),
+      }));
+    },
+
+    async addAssignment(staffProfileId, teamId, assignedBy) {
+      const { rowCount } = await q.query(
+        `insert into public.team_assignments (staff_profile_id, team_id, assigned_by)
+         values ($1, $2, $3) on conflict do nothing`,
+        [staffProfileId, teamId, assignedBy],
+      );
+      return (rowCount ?? 0) > 0;
+    },
+
+    async removeAssignment(staffProfileId, teamId) {
+      const { rowCount } = await q.query(
+        'delete from public.team_assignments where staff_profile_id = $1 and team_id = $2',
+        [staffProfileId, teamId],
+      );
+      return (rowCount ?? 0) > 0;
     },
 
     async rosterCount(eventId) {
@@ -597,8 +718,22 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         where.push(sql(params.length));
       };
       // Drafts are the family's private work in progress: an admin sees them only when asking for DRAFT explicitly.
-      if (query.status) add((n) => `r.status = $${n}`, query.status);
-      else where.push(`r.status <> 'DRAFT'`);
+      if (query.status && query.status !== 'FLAGGED') {
+        add((n) => `r.status = $${n}`, query.status);
+      } else where.push(`r.status <> 'DRAFT'`);
+      // A document counts by its newest version per type: one that was replaced is no longer a concern.
+      const newestDocs = `(select distinct on (x.document_type) x.* from public.documents x
+                              where x.registration_id = r.id
+                              order by x.document_type, x.created_at desc, x.id)`;
+      if (query.status === 'FLAGGED') {
+        where.push(
+          `exists (select 1 from ${newestDocs} nd where nd.ai_rejected or nd.status = 'REJECTED')`,
+        );
+      }
+      if (query.eventAccessDisabled === 'true') where.push('r.event_access_disabled');
+      if (query.aiRejected === 'true') {
+        where.push(`exists (select 1 from ${newestDocs} nd where nd.ai_rejected)`);
+      }
       if (query.teamId) add((n) => `r.team_id = $${n}`, query.teamId);
       if (query.search) {
         add(
@@ -640,6 +775,7 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         first_name: string;
         last_name: string;
         date_of_birth: string | null;
+        age_division: 'U12' | 'U14' | 'U16' | null;
         staff_id: string | null;
         staff_email: string | null;
         staff_phone: string | null;
@@ -651,24 +787,26 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
         approved: string;
         rejected: string;
         not_submitted: string;
+        ai_rejected: string;
       }>(
         `select r.id, r.registration_number, r.status, r.submitted_at, r.created_at, r.event_access_disabled,
                 r.registrant_type, pl.id as player_id,
                 coalesce(pl.first_name, sp.first_name) as first_name,
                 coalesce(pl.last_name, sp.last_name) as last_name,
-                pl.date_of_birth::text as date_of_birth,
+                pl.date_of_birth::text as date_of_birth, pl.age_division,
                 sp.id as staff_id, sp.email as staff_email, sp.phone as staff_phone, sp.staff_role as staff_role,
                 t.id as team_id, t.name as team_name,
                 (select p.status from public.payments p where p.registration_id = r.id
                   order by (p.status = 'PAID') desc, p.created_at desc limit 1) as payment_status,
-                dc.in_review, dc.approved, dc.rejected, dc.not_submitted
+                dc.in_review, dc.approved, dc.rejected, dc.not_submitted, dc.ai_rejected
            ${from}
            left join lateral (
              select count(*) filter (where nd.submitted_at is not null and nd.status = 'PENDING'
                                        and r.status not in ('CANCELLED', 'REJECTED')) as in_review,
                     count(*) filter (where nd.status = 'APPROVED') as approved,
                     count(*) filter (where nd.status = 'REJECTED') as rejected,
-                    count(*) filter (where nd.uploaded_at is not null and nd.submitted_at is null) as not_submitted
+                    count(*) filter (where nd.uploaded_at is not null and nd.submitted_at is null) as not_submitted,
+                    count(*) filter (where nd.ai_rejected) as ai_rejected
                from (select distinct on (x.document_type) x.*
                        from public.documents x where x.registration_id = r.id
                       order by x.document_type, x.created_at desc, x.id) nd
@@ -692,6 +830,7 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
               approved: Number(r.approved),
               rejected: Number(r.rejected),
               notSubmitted: Number(r.not_submitted),
+              aiRejected: Number(r.ai_rejected),
             },
             eventAccessDisabled: r.event_access_disabled,
           };
@@ -704,6 +843,7 @@ function build(q: Queryable, run: AdminRepository['transaction']): AdminReposito
                   firstName: r.first_name,
                   lastName: r.last_name,
                   dateOfBirth: r.date_of_birth!,
+                  ageDivision: r.age_division,
                 },
                 paymentStatus: r.payment_status ?? 'NOT_STARTED',
               }

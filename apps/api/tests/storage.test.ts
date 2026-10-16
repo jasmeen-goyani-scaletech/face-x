@@ -71,7 +71,6 @@ describe('upload authorization / policy', () => {
     for (const [area, mimeType] of [
       ['registration-documents', 'text/html'],
       ['registration-documents', 'application/x-msdownload'],
-      ['registration-documents', 'image/webp'],
       ['player-images', 'application/pdf'],
       ['player-images', 'image/svg+xml'],
     ] as const) {

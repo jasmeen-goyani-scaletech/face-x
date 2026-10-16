@@ -10,14 +10,23 @@ import type { SignedDownload, SignedUpload, StorageProvider } from './storage-pr
 export const DOCX_MIME_TYPE =
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-/** Default and ceiling for DOCUMENT_MAX_BYTES (one limit for every document type). */
+export const DOC_MIME_TYPE = 'application/msword';
+
+/** Default and ceiling for DOCUMENT_MAX_BYTES (one limit for every document type): no document may exceed 5 MB. */
 export const DEFAULT_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
-export const DOCUMENT_MAX_BYTES_CEILING = 10 * 1024 * 1024;
+export const DOCUMENT_MAX_BYTES_CEILING = 5 * 1024 * 1024;
 
 export const STORAGE_AREAS = {
   'registration-documents': {
-    // DOCX is text the extractor can read; the legacy binary .doc is not accepted (nothing here can read it).
-    allowedMimeTypes: ['application/pdf', 'image/jpeg', 'image/png', DOCX_MIME_TYPE],
+    // PDF, images and Word files. The AI check reads PDF, JPEG, PNG and DOCX; a WebP or legacy .doc is stored and left to the reviewer.
+    allowedMimeTypes: [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      DOCX_MIME_TYPE,
+      DOC_MIME_TYPE,
+    ],
     /** The highest DOCUMENT_MAX_BYTES may go; the limit actually applied is set when storage is created. */
     maxBytes: DOCUMENT_MAX_BYTES_CEILING,
   },

@@ -24,6 +24,12 @@ export const requestUploadBodySchema = z
   })
   .strict();
 
+/**
+ * Submitting sends the document to review. `aiRejected` is the client's report that the AI check turned the document down on the
+ * family's second attempt; it only ever adds scrutiny (the reviewer is told to look by eye), so it needs no proof.
+ */
+export const submitBodySchema = z.object({ aiRejected: z.boolean().optional() }).strict();
+
 export const reviewBodySchema = z.discriminatedUnion('decision', [
   z
     .object({
@@ -42,4 +48,5 @@ export const reviewBodySchema = z.discriminatedUnion('decision', [
 ]);
 
 export type RequestUploadBody = z.infer<typeof requestUploadBodySchema>;
+export type SubmitBody = z.infer<typeof submitBodySchema>;
 export type ReviewBody = z.infer<typeof reviewBodySchema>;

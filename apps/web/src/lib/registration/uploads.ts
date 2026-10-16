@@ -1,4 +1,5 @@
 import { ApiError } from '@/lib/api/errors';
+import { MAX_DOCUMENT_BYTES, documentMimeType } from '@/lib/playerDocuments';
 import { completeUpload, putToStorage, requestUpload } from '@/lib/api/documents';
 import type { ApiDocument, ApiDocumentType } from '@/lib/api/types';
 import { DOCUMENT_TYPE_BY_KEY, type PlayerDocumentKey } from './documentMap';
@@ -7,9 +8,8 @@ import { DOCUMENT_TYPE_BY_KEY, type PlayerDocumentKey } from './documentMap';
  * Size limits, mirroring the API (infrastructure/storage/file-storage.ts), so a file that would be refused is caught before
  * any bytes are sent. The API remains the authority.
  */
-// One limit for every document (the API's DOCUMENT_MAX_BYTES, 5 MB by default).
-const MAX_PDF_BYTES = 5 * 1024 * 1024;
-const MAX_DOCUMENT_IMAGE_BYTES = 5 * 1024 * 1024;
+// One limit for every document, whatever its type (the API's DOCUMENT_MAX_BYTES, 5 MB).
+const MAX_DOCUMENT_IMAGE_BYTES = MAX_DOCUMENT_BYTES;
 const MAX_PHOTO_BYTES = 2 * 1024 * 1024;
 /** Photos of documents are squeezed only until they are about this size. Smaller is not worth any loss of detail. */
 const TARGET_IMAGE_BYTES = 800 * 1024;
@@ -23,7 +23,9 @@ const COMPRESSION_STEPS = [
   { edge: 1400, quality: 0.72 },
   { edge: 1200, quality: 0.7 }
 ];
-/** The API accepts these for the player photo (images only) and for documents (PDF, JPEG, PNG). */
+/** Sent as they are, never re-rendered (a re-render would corrupt them): the document kinds that are not images. */
+const UNCHANGED_DOCUMENT_TYPES = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+/** The API accepts these for the player photo (images only) and for documents (alongside PDF, DOC and DOCX). */
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 const tooLarge = (limit: number) =>
@@ -55,15 +57,16 @@ const swapExtension = (name: string, ext: string) => `${name.replace(/\.[^./\\]+
 
 /**
  * Gets a picked or captured file ready to send. Photos are re-encoded as JPEG (long edge capped, quality stepped down only until
- * the file is small enough), which keeps uploads fast and also drops metadata such as GPS location. PDFs are never re-rendered,
- * so they stay valid and sharp; they are only checked against the size limit. If a photo can't be decoded by the browser it is
+ * the file is small enough), which keeps uploads fast and also drops metadata such as GPS location. PDFs and Word files are never
+ * re-rendered, so they stay valid and sharp; they are only checked against the size limit. If a photo can't be decoded by the browser it is
  * sent unchanged when its type is one the API accepts and it fits the limit; otherwise it is refused.
  */
 export async function prepareFile(file: File | Blob, fileName: string, isProfilePhoto = false): Promise<PreparedFile> {
-  const type = file.type || 'application/octet-stream';
-  if (type === 'application/pdf' && !isProfilePhoto) {
-    if (file.size > MAX_PDF_BYTES) throw tooLarge(MAX_PDF_BYTES);
-    return { blob: file, fileName, mimeType: 'application/pdf' };
+  // Browsers report no type for some Word files: a document's extension then decides.
+  const type = (isProfilePhoto ? file.type : documentMimeType({ name: fileName, type: file.type }) ?? file.type) || 'application/octet-stream';
+  if (!isProfilePhoto && UNCHANGED_DOCUMENT_TYPES.includes(type)) {
+    if (file.size > MAX_DOCUMENT_BYTES) throw tooLarge(MAX_DOCUMENT_BYTES);
+    return { blob: file, fileName, mimeType: type };
   }
   const limit = isProfilePhoto ? MAX_PHOTO_BYTES : MAX_DOCUMENT_IMAGE_BYTES;
 
@@ -96,7 +99,7 @@ export async function prepareFile(file: File | Blob, fileName: string, isProfile
       if (e instanceof ApiError) throw e;
       // fall through to the unchanged-file check below
     }
-    if (ACCEPTED_IMAGE_TYPES.includes(type) && (isProfilePhoto || type !== 'image/webp')) {
+    if (ACCEPTED_IMAGE_TYPES.includes(type)) {
       if (file.size > limit) throw tooLarge(limit);
       return { blob: file, fileName, mimeType: type };
     }

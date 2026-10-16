@@ -138,6 +138,7 @@ describe('requesting an upload (presigned URL)', () => {
     expect(JSON.stringify(document)).not.toContain(key);
     expect(Object.keys(document).sort()).toEqual(
       [
+        'aiRejected',
         'createdAt',
         'documentType',
         'fileName',
@@ -217,20 +218,20 @@ describe('requesting an upload (presigned URL)', () => {
     expect(photo.body.error.code).toBe('FILE_TOO_LARGE');
   });
 
-  it('raises the document limit when DOCUMENT_MAX_BYTES is set, never past 10 MiB', async () => {
+  it('lowers the document limit when DOCUMENT_MAX_BYTES is set, never past 5 MiB', async () => {
     const MB = 1024 * 1024;
-    const files = createFileStorage(createFakeStorage().provider, storageLimits(8 * MB));
+    const files = createFileStorage(createFakeStorage().provider, storageLimits(4 * MB));
     const big = { area: 'registration-documents' as const, registrationId: randomUUID() };
     await expect(
-      files.issueUpload({ ...big, mimeType: 'application/pdf', sizeBytes: 8 * MB }),
+      files.issueUpload({ ...big, mimeType: 'application/pdf', sizeBytes: 4 * MB }),
     ).resolves.toMatchObject({ method: 'PUT' });
     await expect(
-      files.issueUpload({ ...big, mimeType: 'application/pdf', sizeBytes: 8 * MB + 1 }),
+      files.issueUpload({ ...big, mimeType: 'application/pdf', sizeBytes: 4 * MB + 1 }),
     ).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' });
-    expect(storageLimits(50 * MB)['registration-documents']).toBe(10 * MB);
+    expect(storageLimits(50 * MB)['registration-documents']).toBe(5 * MB);
   });
 
-  it('accepts a DOCX (a ZIP) but not a legacy .doc or another ZIP passed off as DOCX', async () => {
+  it('accepts a DOCX (a ZIP) and a legacy .doc, but not another ZIP passed off as DOCX', async () => {
     const f = await family();
     const docx = fileBytes.docx();
     const id = await uploaded(
@@ -240,12 +241,18 @@ describe('requesting an upload (presigned URL)', () => {
     );
     expect((await docOf(f, id)).state).toBe('UPLOADED');
 
-    const doc = await upload(
+    const legacy = fileBytes.doc();
+    const docId = await uploaded(
       f,
-      pdfBody({ documentType: 'SCHOOL_ID', mimeType: 'application/msword' }),
+      pdfBody({
+        documentType: 'SCHOOL_ID',
+        mimeType: 'application/msword',
+        fileName: 'id.doc',
+        sizeBytes: legacy.length,
+      }),
+      legacy,
     );
-    expect(doc.status).toBe(400);
-    expect(doc.body.error.code).toBe('FILE_TYPE_NOT_ALLOWED');
+    expect((await docOf(f, docId)).state).toBe('UPLOADED');
 
     // Declared DOCX, but the bytes are a PDF: refused at confirmation like any other mismatch.
     const res = await upload(f, pdfBody({ documentType: 'SCHOOL_ID', mimeType: DOCX }));
@@ -254,6 +261,41 @@ describe('requesting an upload (presigned URL)', () => {
     const done = await as(app, f.parent.id).post(`${D}/${fakeId}/complete`);
     expect(done.status).toBe(422);
     expect(done.body.error.code).toBe('FILE_CONTENT_MISMATCH');
+  });
+
+  it('accepts a WebP image for a document, and refuses one over 5 MB', async () => {
+    const f = await family();
+    const webp = fileBytes.webp(4096);
+    const id = await uploaded(
+      f,
+      pdfBody({ mimeType: 'image/webp', fileName: 'cert.webp', sizeBytes: webp.length }),
+      webp,
+    );
+    expect((await docOf(f, id)).state).toBe('UPLOADED');
+    const big = await upload(
+      f,
+      pdfBody({ documentType: 'SCHOOL_ID', mimeType: 'image/webp', sizeBytes: 5 * 1024 * 1024 + 1 }),
+    );
+    expect(big.status).toBe(400);
+    expect(big.body.error.code).toBe('FILE_TOO_LARGE');
+  });
+
+  it('records aiRejected on submit, defaults it to false, and refuses a non-boolean', async () => {
+    const f = await family();
+    const plain = await uploaded(f);
+    const sent = await as(app, f.parent.id).post(`${D}/${plain}/submit`);
+    expect(sent.status).toBe(200);
+    expect(sent.body.data.aiRejected).toBe(false);
+
+    const flagged = await uploaded(f, pdfBody({ documentType: 'SCHOOL_TRANSCRIPT' }));
+    const bad = await as(app, f.parent.id).post(`${D}/${flagged}/submit`, { aiRejected: 'yes' });
+    expect(bad.status).toBe(422);
+    const extra = await as(app, f.parent.id).post(`${D}/${flagged}/submit`, { status: 'APPROVED' });
+    expect(extra.status).toBe(422);
+    const ok = await as(app, f.parent.id).post(`${D}/${flagged}/submit`, { aiRejected: true });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data.aiRejected).toBe(true);
+    expect((await docOf(f, flagged)).aiRejected).toBe(true);
   });
 
   it('only accepts the player document types the frontend defines', async () => {
@@ -620,6 +662,34 @@ describe('review workflow', () => {
     }
   });
 
+  it('shows the admin a submitted replacement instead of the rejected file, and keeps an unsubmitted one hidden', async () => {
+    const f = await family();
+    const rejectedId = await submitted(f);
+    expect((await reject(adminA, rejectedId)).status).toBe(200);
+    const adminList = async () =>
+      (await as(app, adminA).get(`${R}/${f.regId}/documents`)).body.data.documents as {
+        id: string;
+        state: string;
+      }[];
+
+    // Uploaded but not yet submitted: the admin still has only the rejected file (the family can still change theirs).
+    const replacementId = await uploaded(f);
+    expect((await adminList()).map((d) => [d.id, d.state])).toEqual([[rejectedId, 'REJECTED']]);
+
+    // Submitted: persisted, so every later request by the admin returns it, and the admin can open and decide it.
+    expect((await as(app, f.parent.id).post(`${D}/${replacementId}/submit`)).status).toBe(200);
+    for (let i = 0; i < 2; i++) {
+      const seen = await adminList();
+      expect(seen.find((d) => d.id === replacementId)).toMatchObject({ state: 'IN_REVIEW' });
+      expect(seen.find((d) => d.id === rejectedId)).toMatchObject({ state: 'REJECTED' });
+    }
+    expect((await as(app, adminA).get(`${D}/${replacementId}/download-url`)).status).toBe(200);
+    expect((await approve(adminA, replacementId)).status).toBe(200);
+    expect((await adminList()).find((d) => d.id === replacementId)).toMatchObject({
+      state: 'APPROVED',
+    });
+  });
+
   it('caps repeated uploads of a rejected document', async () => {
     const f = await family();
     for (let i = 0; i < 10; i++) {
@@ -737,6 +807,7 @@ describe('reading and downloading: authorization', () => {
       firstName: 'Ann',
       lastName: 'Adult',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     const reg = await as(app, player.id).post(R, {

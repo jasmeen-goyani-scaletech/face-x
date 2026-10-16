@@ -87,9 +87,9 @@ export default function CoachApprovalConfirmation() {
   if (data.status === 'none') return null;
 
   const team = data.view.team;
-  // The people on the team: players and staff. The server keeps the roster closed until the coach is cleared for the event.
+  // The players on the team (staff details are for admins). The server keeps the roster closed until the coach is cleared for the event.
   const members = (data.members ?? [])
-    .filter((r) => r.role === 'player' || r.role === 'staff')
+    .filter((r) => r.role === 'player')
     .sort((a, b) => a.role.localeCompare(b.role) || a.lastName.localeCompare(b.lastName));
 
   return (
@@ -108,7 +108,7 @@ export default function CoachApprovalConfirmation() {
             Open Event-Day Roster
           </Button>
         </Link>
-        <Link href="/coach/my-team/roster" className="flex-1 no-underline">
+        <Link href="/admin/roster" className="flex-1 no-underline">
           <Button variant="secondary" block>
             View Team Roster
           </Button>

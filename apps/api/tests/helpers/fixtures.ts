@@ -52,6 +52,7 @@ export const childBody = (overrides: Record<string, unknown> = {}) => ({
   firstName: 'Mateo',
   lastName: 'Rivera',
   dateOfBirth: '2014-03-09',
+  ageDivision: 'U12',
   guardian: {
     relationship: 'Mother',
     firstName: 'Dana',

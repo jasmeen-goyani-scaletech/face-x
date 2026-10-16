@@ -24,6 +24,10 @@ export interface AuthService {
    */
   startGuestSession(input: { email: string; fullName?: string; role: string }): Promise<Session>;
   login(input: { email: string; password: string }): Promise<Session>;
+  /** A one-time sign-in link for this user (an admin hands it over). Only the token's hash is stored. */
+  issueSignInLink(userId: string, createdBy: string): Promise<{ token: string; expiresAt: Date }>;
+  /** Spends a sign-in link and starts a session, exactly as a login would. 401 when it is unknown, used or expired. */
+  redeemSignInLink(token: string): Promise<Session>;
   /** Rotates the refresh token: the presented one stops working, a new one is issued. */
   refresh(refreshToken: string | undefined): Promise<Session>;
   /** Ends the session the refresh token belongs to. Always succeeds, even for an unknown token. */
@@ -43,6 +47,9 @@ export interface AuthServiceDeps {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const SIGN_IN_LINK_TTL_MS = DAY_MS;
+const invalidSignInLink = () =>
+  AppError.unauthorized('This sign-in link is invalid or has expired', 'SIGN_IN_LINK_INVALID');
 const invalidCredentials = () =>
   AppError.unauthorized('Email or password is incorrect', 'INVALID_CREDENTIALS');
 
@@ -148,6 +155,29 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
         expiresAt,
       });
       return buildSession(credentials.userId, refreshToken, expiresAt);
+    },
+
+    async issueSignInLink(userId, createdBy) {
+      const token = generateRefreshToken();
+      const expiresAt = new Date(Date.now() + SIGN_IN_LINK_TTL_MS);
+      await repository.createSignInLink({ userId, createdBy, tokenHash: hash(token), expiresAt });
+      return { token, expiresAt };
+    },
+
+    async redeemSignInLink(token) {
+      if (!isWellFormedRefreshToken(token)) throw invalidSignInLink();
+      const link = await repository.consumeSignInLink(hash(token));
+      if (!link) throw invalidSignInLink();
+      if (!link.isActive) throw AppError.forbidden('This account is disabled', 'ACCOUNT_DISABLED');
+      const refreshToken = generateRefreshToken();
+      const expiresAt = refreshExpiry();
+      await repository.createRefreshToken({
+        userId: link.userId,
+        familyId: randomUUID(),
+        tokenHash: hash(refreshToken),
+        expiresAt,
+      });
+      return buildSession(link.userId, refreshToken, expiresAt);
     },
 
     async refresh(presented) {

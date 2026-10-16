@@ -33,9 +33,11 @@ import type {
 } from '@/lib/api/types';
 import { calcAge } from '@/lib/age';
 import { setPlayerStarted } from '@/lib/activeRole';
-import { freshPlayerRegistration, type PlayerRegistration, type PlayerStep, type TeamInvite, type UploadedFile } from '@/lib/types';
-import { DOCUMENT_KEYS, DOCUMENT_TYPE_BY_KEY, hasRejectedDocument, toUploadedFile, type PlayerDocumentKey } from './documentMap';
+import { emptyFile, freshPlayerRegistration, type PlayerRegistration, type PlayerStep, type TeamInvite, type UploadedFile } from '@/lib/types';
+import { rememberPaymentRegistration } from '@/lib/payment';
+import { DOCUMENT_KEYS, DOCUMENT_TYPE_BY_KEY, hasRejectedDocument, newestFileOfType, toUploadedFile, type PlayerDocumentKey } from './documentMap';
 import { uploadPlayerDocument } from './uploads';
+import { useAiDocumentCheck } from './useAiDocumentCheck';
 
 const GUARDIAN_CONSENT = 'GUARDIAN_CONSENT';
 /** Statuses a family can still be working on from the wizard (payment may be outstanding). */
@@ -45,7 +47,7 @@ export type WizardPhase = 'loading' | 'ready' | 'error';
 
 export type InviteState =
   | { status: 'none' }
-  | { status: 'valid'; invite: TeamInvite; eventId: string }
+  | { status: 'valid'; invite: TeamInvite; eventId: string; /** The team has no places left for players. */ full: boolean }
   | { status: 'invalid' };
 
 export interface WizardNotice {
@@ -205,7 +207,10 @@ export interface PlayerWizard {
 }
 
 export function usePlayerWizard(options: WizardOptions): PlayerWizard {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  // Set once this wizard has ended the previous person's session, so a repeat run of the bootstrap (React strict mode, a retry)
+  // does not act on the stale `user` of its render.
+  const endedSession = useRef(false);
   const [phase, setPhase] = useState<WizardPhase>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -299,7 +304,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     }
     (async () => {
       try {
-        const [eventList, summaries, wording] = await Promise.all([listEvents(), hasFamilyRole(user) ? listRegistrations() : Promise.resolve([]), getCurrentConsents()]);
+        const [eventList, listed, wording] = await Promise.all([listEvents(), hasFamilyRole(endedSession.current ? null : user) ? listRegistrations() : Promise.resolve([]), getCurrentConsents()]);
         if (cancelled) return;
         setEvents(eventList);
         setConsentWording(wording.find((c) => c.code === GUARDIAN_CONSENT) ?? null);
@@ -311,7 +316,8 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
             inviteState = {
               status: 'valid',
               eventId: resolved.event.id,
-              invite: { teamId: resolved.team.id, inviteCode: options.inviteCode, teamName: resolved.team.name, club: resolved.team.club }
+              invite: { teamId: resolved.team.id, inviteCode: options.inviteCode, teamName: resolved.team.name, club: resolved.team.club },
+              full: resolved.team.full.player
             };
           } catch (e) {
             // A link the API can't even parse (old-style ids like "COACH-101", a truncated code) is just an invalid
@@ -324,13 +330,30 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
         setInvite(inviteState);
         inviteRef.current = inviteState;
 
+        // A team invite is about one event: a registration this account has for another event is not what the link is for, so
+        // it must not be resumed in its place (that would show an old, perhaps free, registration instead of this event's flow).
+        const inviteEventId = inviteState.status === 'valid' ? inviteState.eventId : null;
+        // Someone starting another registration on this browser ("Register another player", or a link for an event this account has
+        // no registration for) is not the person signed in: end that session first, so nothing of the previous person is carried
+        // over. A refresh mid-registration never does this: the account then has a registration for the link's own event.
+        const hasOwnForInvite = !!inviteEventId && listed.some((s) => s.event.id === inviteEventId);
+        const otherPerson = !!user && !endedSession.current && !options.registrationId && (options.startNew || (!!inviteEventId && listed.length > 0 && !hasOwnForInvite));
+        let signedOut = false;
+        if (otherPerson) {
+          signedOut = await logout().then(() => true, () => false);
+          if (cancelled) return;
+          if (signedOut) endedSession.current = true;
+          if (signedOut) setNotice({ level: 'info', title: 'You were signed out', text: 'This is a new registration, so the previous session on this browser was ended.' });
+        }
+        const summaries = signedOut ? [] : listed;
+        const candidates = inviteEventId ? summaries.filter((s) => s.event.id === inviteEventId) : summaries;
         const resumable = options.registrationId
           ? summaries.find((s) => s.id === options.registrationId)
           : options.startNew
             ? undefined
             : // Work in progress first; otherwise show the latest registration that is still alive (its final screen, which
               // offers "Start a new registration"). A cancelled or rejected one doesn't block a fresh start.
-              (summaries.find((s) => IN_PROGRESS.includes(s.status)) ?? summaries.find((s) => s.status !== 'CANCELLED' && s.status !== 'REJECTED'));
+              (candidates.find((s) => IN_PROGRESS.includes(s.status)) ?? candidates.find((s) => s.status !== 'CANCELLED' && s.status !== 'REJECTED'));
 
         if (resumable) {
           const loaded = await hydrate(resumable.id, { step: 'derive' });
@@ -352,7 +375,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
             const invited = inviteState.invite;
             setReg((prev) => ({ ...prev, invite: invited, teamId: invited.teamId }));
           }
-          const draft = user && !startingFresh ? readUnsavedDraft(user.id) : null;
+          const draft = user && !startingFresh && !signedOut && !endedSession.current ? readUnsavedDraft(user.id) : null;
           if (draft) {
             const eventStillOpen = eventList.some((e) => e.id === draft.eventId);
             if (inviteState.status !== 'valid' && eventStillOpen) setEventId(draft.eventId);
@@ -609,16 +632,20 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
   }, [run, createDraft, hydrate, goTo]);
 
   // ---------------------------------------------------------------- step 3: photo & documents
+  const aiCheck = useAiDocumentCheck();
+  // A document an admin rejected is replaced without another AI check: remember which types those are whenever the list is loaded.
+  const { noteRejected } = aiCheck;
+  useEffect(() => noteRejected(apiDocuments), [apiDocuments, noteRejected]);
   const documents = useMemo(() => {
     const out = {} as Record<PlayerDocumentKey, UploadedFile>;
     for (const key of DOCUMENT_KEYS) {
-      out[key] = toUploadedFile(
-        apiDocuments.find((d) => d.documentType === DOCUMENT_TYPE_BY_KEY[key]),
-        previews[key]
-      );
+      // A document the AI check turned down the first time is held back until the person replaces it.
+      out[key] = aiCheck.blocked.has(DOCUMENT_TYPE_BY_KEY[key])
+        ? emptyFile()
+        : newestFileOfType(apiDocuments, DOCUMENT_TYPE_BY_KEY[key], previews[key]);
     }
     return out;
-  }, [apiDocuments, previews]);
+  }, [apiDocuments, previews, aiCheck.blocked]);
 
   const uploadDocument = useCallback(async (key: PlayerDocumentKey, file: File | Blob, fileName: string, onProgress: (percent: number) => void) => {
     const current = registrationRef.current;
@@ -648,7 +675,16 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
     } else if (document.documentType === 'PROFILE_PHOTO') {
       setNotice(null);
     }
-  }, []);
+    // The first AI rejection is shown (and the upload row asks for a replacement); a second one is silent.
+    const rejection = await aiCheck.review(document);
+    if (rejection) throw new Error(rejection);
+    // A file that replaces one an admin rejected goes to staff review right away, so the admin sees it without a second step.
+    // If this call fails the upload still stands and "Submit" sends it later, so the failure is not shown as an upload error.
+    if (aiCheck.replacesRejected(document.documentType)) {
+      const sent = await submitDocument(document.id).catch(() => null);
+      if (sent) setApiDocuments((prev) => [...prev.filter((d) => d.documentType !== sent.documentType), sent]);
+    }
+  }, [aiCheck]);
 
   const finishDocuments = useCallback(async () => {
     await run(async () => {
@@ -656,13 +692,13 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
       if (!current) throw new Error('no registration');
       const docs = await listDocuments(current.id);
       // Everything stored and checked goes to staff review; rejected ones were replaced by a new upload.
-      for (const d of docs.documents) if (d.state === 'UPLOADED') await submitDocument(d.id);
+      for (const d of docs.documents) if (d.state === 'UPLOADED') await submitDocument(d.id, { aiRejected: aiCheck.aiRejected(d.documentType) });
       if (current.status === 'DRAFT') await submitRegistration(current.id);
       const loaded = await hydrate(current.id);
       // (Everything rejected has just been replaced, so nothing sends the family back to this step.)
       goTo(stepFor(loaded.registration, loaded.consents) === 'complete' ? 'complete' : 'payment');
     });
-  }, [run, hydrate, goTo]);
+  }, [run, hydrate, goTo, aiCheck]);
 
   // ---------------------------------------------------------------- step 4: payment
   const startPayment = useCallback(async () => {
@@ -678,6 +714,7 @@ export function usePlayerWizard(options: WizardOptions): PlayerWizard {
       }
       const checkout = await startCheckout(current.id);
       // Hand over to Stripe's hosted page. The registration is already saved on the server, so nothing is lost.
+      rememberPaymentRegistration(current.id);
       window.location.assign(checkout.checkoutUrl);
     });
   }, [run, hydrate, goTo]);

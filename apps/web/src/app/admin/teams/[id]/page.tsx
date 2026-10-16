@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/Toast';
 import { TextField } from '@/components/ui/Field';
 import { ChevronLeftIcon, CopyIcon } from '@/components/ui/Icons';
 import SaveErrorAlert from '@/components/registration/player/SaveErrorAlert';
+import TeamLimitsCard from '@/components/admin/TeamLimitsCard';
 import { getAdminEvent, getAdminTeam, updateAdminTeam } from '@/lib/api/admin';
 import { describeError, fieldErrorsOf, hasCode } from '@/lib/api/errors';
 import type { ApiAdminEvent, ApiAdminTeam, ApiTeamStatus } from '@/lib/api/types';
@@ -202,7 +203,9 @@ export default function TeamDetailPage({ params }: { params: { id: string } }) {
         </div>
       </Card>
 
-      <Card>
+      <TeamLimitsCard key={JSON.stringify(team.limits)} team={team} onSaved={(saved) => setState((s) => (s.kind === 'ready' ? { ...s, team: saved } : s))} />
+
+      <Card className="mt-5">
         <h2 className="text-lg mb-1">Registration Links</h2>
         <p className="text-ink-soft text-sm mb-4">Team and role are pre-filled — the registrant skips straight to the form.</p>
         {team.status === 'DISABLED' ? (

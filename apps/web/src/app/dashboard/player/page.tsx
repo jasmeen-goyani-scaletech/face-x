@@ -64,6 +64,8 @@ function RegistrationPanel({ s }: { s: Snapshot }) {
   const documents = newestPerType(s.documents);
   const status = STATUS_LABEL[r.status];
   const resume = `/register/player?registrationId=${r.id}`;
+  // A rejected file already has its own "Upload replacements" link in the Documents card, so the banner doesn't repeat it.
+  const hasRejected = documents.some((d) => d.state === 'REJECTED');
 
   return (
     <div className="mb-8">
@@ -103,7 +105,7 @@ function RegistrationPanel({ s }: { s: Snapshot }) {
             <ShieldIcon size={20} className="shrink-0 mt-0.5" />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-sm">{BLOCKERS[b].text}</p>
-              {BLOCKERS[b].action && (
+              {BLOCKERS[b].action && !(b === 'DOCUMENTS_NOT_SUBMITTED' && hasRejected) && (
                 <Link href={resume} className="mt-1 inline-block text-sm font-bold underline">
                   {BLOCKERS[b].action}
                 </Link>

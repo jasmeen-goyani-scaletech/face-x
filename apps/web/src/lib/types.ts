@@ -12,6 +12,10 @@ export interface UploadedFile {
   serverId?: string;
   /** The stored file's type (e.g. image/jpeg, application/pdf), as the server recorded it. */
   mimeType?: string;
+  /** The AI check turned the document down twice before it was sent for review; only the admin sees this. */
+  aiRejected?: boolean;
+  /** An admin rejected the file this one replaces, and the replacement has not been sent for review yet (the reason, possibly empty). */
+  priorRejection?: string;
 }
 
 export function emptyFile(): UploadedFile {
@@ -68,6 +72,7 @@ export interface PlayerBasic {
   email: string;
   phone: string;
   dob: string; // yyyy-mm-dd
+  /** The bracket the player plays in; empty until chosen. Absent on drafts saved before it was asked for. */
 }
 
 /** The one place guardian details live (key kept as `emergency` so saved drafts still load). */

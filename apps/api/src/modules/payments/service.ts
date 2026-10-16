@@ -43,6 +43,13 @@ export interface PaymentServiceDeps {
   provider?: PaymentProvider;
   /** Where the hosted page sends the customer back to (the existing frontend return page). */
   returnBaseUrl: string;
+  /**
+   * A Stripe Payment Link (test mode). When set, starting a payment sends the player to this link instead of creating a
+   * Checkout Session: the payment's id travels as client_reference_id and the signed webhook confirms the payment.
+   */
+  paymentLinkUrl?: string;
+  /** What the Payment Link charges, in cents. A registration with a different fee cannot be paid through it. */
+  paymentLinkAmountCents?: number;
   /** Told when a confirmed payment completes a registration (READY_FOR_EVENT). Absent: no notifications. */
   notifications?: NotificationPublisher;
 }
@@ -57,6 +64,13 @@ const RETURN_PATH = '/register/player/payment-return';
 const regNotFound = () => AppError.notFound('REGISTRATION_NOT_FOUND', 'Registration not found');
 const notConfigured = () =>
   AppError.unavailable('PAYMENT_NOT_CONFIGURED', 'Payments are not configured');
+
+/** The player's way to Stripe's hosted page for a Payment Link: the link, tagged with our payment id. */
+function paymentLinkSession(link: string, paymentId: string) {
+  const url = new URL(link);
+  url.searchParams.set('client_reference_id', paymentId);
+  return { sessionId: null, url: url.toString(), expiresAt: null };
+}
 
 /** Provider failures are 503 with the cause only in the server log (never the provider's message to the client). */
 function providerFailure(cause: unknown): AppError {
@@ -73,6 +87,8 @@ export function createPaymentService({
   repository,
   provider,
   returnBaseUrl,
+  paymentLinkUrl,
+  paymentLinkAmountCents,
   notifications,
 }: PaymentServiceDeps): PaymentService {
   const isAdminOf = (ctx: AuthContext, organizationId: string) =>
@@ -115,6 +131,14 @@ export function createPaymentService({
           throw AppError.conflict(
             'PAYMENT_NOT_REQUIRED',
             'No payment is due for this registration',
+          );
+        }
+
+        if (paymentLinkUrl && paymentLinkAmountCents !== undefined && reg.feeCents !== paymentLinkAmountCents) {
+          // The link charges one fixed price: sending this player there would charge an amount that is not their fee.
+          throw AppError.conflict(
+            'PAYMENT_LINK_AMOUNT_MISMATCH',
+            'Online payment is not set up for this registration fee yet',
           );
         }
 
@@ -163,7 +187,9 @@ export function createPaymentService({
           );
         }
 
-        const session = await provider
+        const session = paymentLinkUrl
+          ? paymentLinkSession(paymentLinkUrl, paymentId)
+          : await provider
           .createCheckoutSession({
             paymentId,
             registrationId,
@@ -178,7 +204,8 @@ export function createPaymentService({
           .catch((e: unknown) => {
             throw providerFailure(e);
           });
-        await r.attachSession(paymentId, session.sessionId, session.expiresAt);
+        // A Payment Link has no session to record yet: the webhook finds the payment by the id carried in client_reference_id.
+        if (session.sessionId) await r.attachSession(paymentId, session.sessionId, session.expiresAt!);
 
         if (reg.status === 'SUBMITTED') {
           assertTransition('SUBMITTED', 'PAYMENT_PENDING');
@@ -206,7 +233,7 @@ export function createPaymentService({
         return {
           paymentId,
           checkoutUrl: session.url,
-          expiresAt: session.expiresAt.toISOString(),
+          expiresAt: session.expiresAt?.toISOString() ?? null,
         };
       });
     },
@@ -315,7 +342,7 @@ export function createPaymentService({
               return finish(payment, 'REJECTED', 'DUPLICATE_PAYMENT');
             }
 
-            await r.markPaid(payment.id, event.paymentIntentId);
+            await r.markPaid(payment.id, event.paymentIntentId, event.sessionId);
             // Any other open checkout of this registration must not be payable any more.
             sessionsToClose.push(
               ...(await r.cancelOtherPending(

@@ -31,13 +31,13 @@ describe('document extraction configuration', () => {
       EXTRACTION_MODEL: 'gpt-4.1-mini',
       EXTRACTION_REASONING_EFFORT: 'default',
       EXTRACTION_TIMEOUT_MS: '15000',
-      DOCUMENT_MAX_BYTES: String(10 * 1024 * 1024),
+      DOCUMENT_MAX_BYTES: String(4 * 1024 * 1024),
     });
     expect(env).toMatchObject({
       EXTRACTION_MODEL: 'gpt-4.1-mini',
       EXTRACTION_REASONING_EFFORT: 'default',
       EXTRACTION_TIMEOUT_MS: 15_000,
-      DOCUMENT_MAX_BYTES: 10 * 1024 * 1024,
+      DOCUMENT_MAX_BYTES: 4 * 1024 * 1024,
     });
     expect(createDocumentExtractor(env.EXTRACTION_PROVIDER, env)?.name).toBe('openai');
     expect(createDocumentExtractor('unknown', env)).toBeUndefined();
@@ -50,7 +50,7 @@ describe('document extraction configuration', () => {
       { EXTRACTION_REASONING_EFFORT: 'extreme' },
       { EXTRACTION_TIMEOUT_MS: '1000' },
       { EXTRACTION_TIMEOUT_MS: '600000' },
-      { DOCUMENT_MAX_BYTES: String(10 * 1024 * 1024 + 1) },
+      { DOCUMENT_MAX_BYTES: String(5 * 1024 * 1024 + 1) },
       { DOCUMENT_MAX_BYTES: '1000' },
     ]) {
       expect(() => parseEnv({ ...valid, ...bad }), JSON.stringify(bad)).toThrow(EnvValidationError);

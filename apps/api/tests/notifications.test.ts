@@ -397,6 +397,41 @@ describe('document accepted / rejected (real review flow)', () => {
     });
   });
 
+  it('notifies a staff member only, about a rejection, linking to the staff page; a repeat review sends nothing more', async () => {
+    const staff = await createUser(db, { roles: ['STAFF'] });
+    const other = await createUser(db, { roles: ['STAFF'] });
+    const profile = await as(app, staff.id).post('/api/v1/staff-profiles', {
+      profileType: 'STAFF',
+      staffRole: 'TEAM_MANAGER',
+      firstName: 'Sam',
+      lastName: 'Staff',
+      email: `${unique('staff')}@example.com`,
+      phone: '555-019-2831',
+    });
+    expect(profile.status, JSON.stringify(profile.body)).toBe(201);
+    const reg = await as(app, staff.id).post(R, {
+      eventId: freeEvent,
+      staffProfileId: profile.body.data.id,
+    });
+    expect(reg.status, JSON.stringify(reg.body)).toBe(201);
+    const device = subscriptionBody();
+    const otherDevice = subscriptionBody();
+    await subscribe(staff.id, device);
+    await subscribe(other.id, otherDevice);
+    const docId = await submitDoc(staff.id, reg.body.data.id, SPECS[0]);
+
+    expect((await reject(docId, 'The photo is cut off at the edge.')).status).toBe(200);
+    expect((await reject(docId)).status).toBe(409); // already reviewed: no second decision, no second notification
+
+    expect(push.sentTo(device.endpoint)).toHaveLength(1);
+    expect(push.sentTo(device.endpoint)[0]!.payload).toMatchObject({
+      type: 'DOCUMENT_REJECTED',
+      url: '/register/staff',
+      data: { registrationId: reg.body.data.id, documentId: docId },
+    });
+    expect(push.sentTo(otherDevice.endpoint)).toHaveLength(0);
+  });
+
   it('does not notify when the review itself fails (already reviewed)', async () => {
     const f = await family(freeEvent);
     await subscribe(f.user.id);

@@ -262,7 +262,7 @@ describe('GET /admin/events/:eventId/registrations', () => {
       player: { firstName: 'Subby', lastName: 'Listtest', dateOfBirth: '2014-03-09' },
       team: { id: teamA2 },
       paymentStatus: 'NOT_STARTED',
-      documents: { inReview: 0, approved: 0, rejected: 0, notSubmitted: 0 },
+      documents: { inReview: 0, approved: 0, rejected: 0, notSubmitted: 0, aiRejected: 0 },
       eventAccessDisabled: false,
     });
     expect(res.body.data).toMatchObject({ page: 1, pageSize: 25, total: 1 });
@@ -340,6 +340,38 @@ describe('GET /admin/events/:eventId/registrations', () => {
     }
   });
 
+  it('shows the age division, and lists flagged registrations (AI rejected or admin rejected) for status=flagged', async () => {
+    const plain = await family({ first: 'Plain', last: 'Flagtest' });
+    const ai = await family({ first: 'Aiflag', last: 'Flagtest' });
+    const human = await family({ first: 'Humanflag', last: 'Flagtest' });
+    await uploadDoc(plain, SPECS[1]);
+    // The family submits the birth certificate after the AI check turned it down twice.
+    const flaggedDoc = await uploadDoc(ai, SPECS[1], false);
+    const sent = await as(app, ai.user.id).post(`${D}/${flaggedDoc}/submit`, { aiRejected: true });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+    expect(sent.body.data.aiRejected).toBe(true);
+    expect((await reviewDoc(adminA, await uploadDoc(human, SPECS[1]), 'REJECTED')).status).toBe(200);
+
+    const all = (await list(adminA, eventA, '?search=Flagtest')).body.data.items;
+    expect(all).toHaveLength(3);
+    const byName = (n: string) => all.find((r: { player: { firstName: string } }) => r.player.firstName === n);
+    expect(byName('Aiflag').documents.aiRejected).toBe(1);
+    expect(byName('Plain').documents.aiRejected).toBe(0);
+    expect(byName('Plain').player.ageDivision).toBe('U12');
+
+    const flagged = await list(adminA, eventA, '?search=Flagtest&status=flagged');
+    expect(flagged.status, JSON.stringify(flagged.body)).toBe(200);
+    expect(flagged.body.data.items.map((r: { player: { firstName: string } }) => r.player.firstName).sort()).toEqual(['Aiflag', 'Humanflag']);
+    expect(flagged.body.data.total).toBe(2);
+
+    const aiOnly = await list(adminA, eventA, '?search=Flagtest&aiRejected=true');
+    expect(aiOnly.body.data.items.map((r: { player: { firstName: string } }) => r.player.firstName)).toEqual(['Aiflag']);
+    const none = await list(adminA, eventA, '?search=Flagtest&eventAccessDisabled=true');
+    expect(none.body.data.total).toBe(0);
+    // Another organization's admin sees nothing of it.
+    expect((await list(adminB, eventA, '?status=flagged')).status).toBe(403);
+  });
+
   it('counts documents by their NEWEST version per type, and reports payment (PAID wins)', async () => {
     const f = await family({ first: 'Counta', last: 'Doctest' });
     const [photo, birth, transcript] = [
@@ -354,7 +386,13 @@ describe('GET /admin/events/:eventId/registrations', () => {
     const replaced = await uploadDoc(f, SPECS[1]);
     expect(replaced).toBeTruthy();
     const row = (await list(adminA, eventA, '?search=Doctest')).body.data.items[0];
-    expect(row.documents).toEqual({ inReview: 2, approved: 1, rejected: 0, notSubmitted: 1 });
+    expect(row.documents).toEqual({
+      inReview: 2,
+      approved: 1,
+      rejected: 0,
+      notSubmitted: 1,
+      aiRejected: 0,
+    });
     expect(transcript).toBeTruthy();
 
     await payFully(f);
@@ -658,7 +696,7 @@ describe('the whole review loop, through the real APIs', () => {
     for (const id of [ids[0], ids[2], ids[3]])
       expect((await reviewDoc(adminA, id, 'APPROVED')).status).toBe(200);
     let row = (await list(adminA, eventA, '?search=Looptest')).body.data.items[0];
-    expect(row.documents).toEqual({ inReview: 0, approved: 3, rejected: 1, notSubmitted: 0 });
+    expect(row.documents).toEqual({ inReview: 0, approved: 3, rejected: 1, notSubmitted: 0, aiRejected: 0 });
     expect(row.status).toBe('DOCUMENT_REVIEW');
 
     // The family sees the reason and replaces the file.
@@ -671,7 +709,7 @@ describe('the whole review loop, through the real APIs', () => {
     const replacement = await uploadDoc(f, SPECS[1]);
 
     row = (await list(adminA, eventA, '?search=Looptest')).body.data.items[0];
-    expect(row.documents).toEqual({ inReview: 1, approved: 3, rejected: 0, notSubmitted: 0 });
+    expect(row.documents).toEqual({ inReview: 1, approved: 3, rejected: 0, notSubmitted: 0, aiRejected: 0 });
     expect((await reviewDoc(adminA, replacement, 'APPROVED')).status).toBe(200);
 
     // Everything approved + paid + consent => ready, without any further manual step.

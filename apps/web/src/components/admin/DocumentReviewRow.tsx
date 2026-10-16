@@ -172,7 +172,15 @@ export default function DocumentReviewRow({
           </button>
           <div className="min-w-0">
             <div className={['text-sm font-bold leading-snug', value.uploaded ? 'text-ink' : 'text-ink-soft'].join(' ')}>{label}</div>
-            {isRejected ? (
+            {value.aiRejected && !isRejected ? (
+              <p
+                className="m-0 mt-0.5 flex items-start gap-1 text-xs font-medium leading-snug text-warning"
+                title="The AI check could not verify this document after two tries. It needs a manual review by an admin."
+              >
+                <AlertCircleIcon size={13} className="mt-px shrink-0" />
+                <span className="xl:truncate">AI could not verify it — needs manual review</span>
+              </p>
+            ) : isRejected ? (
               <p
                 className="m-0 mt-0.5 flex items-start gap-1 text-xs font-medium leading-snug text-field-error"
                 title={value.reason || 'Rejected'}
@@ -187,8 +195,13 @@ export default function DocumentReviewRow({
         </div>
 
         {/* Status */}
-        <div role="cell">
+        <div role="cell" className="flex flex-wrap items-center gap-1.5 xl:flex-col xl:items-start">
           <StatusChip status={status} />
+          {value.aiRejected && (
+            <Chip compact kind="danger">
+              AI Rejected
+            </Chip>
+          )}
         </div>
 
         {/* File: name over size · uploaded time (wide screens). Stacked layouts show it as one muted line below. */}

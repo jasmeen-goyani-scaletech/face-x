@@ -24,6 +24,7 @@ export interface DocumentRecord {
   status: ReviewStatus;
   uploadedAt: Date | null;
   submittedAt: Date | null;
+  aiRejected: boolean;
 }
 
 export interface RegistrationAccess {
@@ -68,10 +69,13 @@ export interface DocumentRepository {
   findDocument(documentId: string, userId: string): Promise<DocumentAccess | null>;
   lockDocument(documentId: string): Promise<DocumentRecord | null>;
   markUploaded(documentId: string): Promise<void>;
-  markSubmitted(documentId: string): Promise<void>;
+  markSubmitted(documentId: string, aiRejected: boolean): Promise<void>;
+  /** The newest document of each type of a registration, with what auto-approval needs to know. */
+  listLatestForApproval(registrationId: string): Promise<ApprovalCandidate[]>;
   insertReview(input: {
     documentId: string;
-    reviewerId: string;
+    /** Null for an approval made by the AI check. */
+    reviewerId: string | null;
     decision: 'APPROVED' | 'REJECTED';
     reasonCode: RejectionReasonCode | null;
     reason: string | null;
@@ -89,6 +93,16 @@ export interface DocumentRepository {
     metadata?: Record<string, string | number | boolean | null>;
     meta: RequestMeta;
   }): Promise<void>;
+}
+
+export interface ApprovalCandidate {
+  id: string;
+  documentType: DocumentType;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  uploaded: boolean;
+  submitted: boolean;
+  aiAccepted: boolean;
+  aiRejected: boolean;
 }
 
 export interface NewUpload {
@@ -110,6 +124,7 @@ interface DocRow {
   status: ReviewStatus;
   uploaded_at: Date | null;
   submitted_at: Date | null;
+  ai_rejected: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -125,10 +140,11 @@ const toRecord = (r: DocRow): DocumentRecord => ({
   status: r.status,
   uploadedAt: r.uploaded_at,
   submittedAt: r.submitted_at,
+  aiRejected: r.ai_rejected,
 });
 
 const DOC_COLUMNS = `d.id, d.registration_id, d.document_type, d.storage_key, d.file_name, d.mime_type,
-  d.size_bytes, d.status, d.uploaded_at, d.submitted_at, d.created_at, d.updated_at`;
+  d.size_bytes, d.status, d.uploaded_at, d.submitted_at, d.ai_rejected, d.created_at, d.updated_at`;
 
 /** Documents plus their latest review decision (reviews are append-only, so "latest" is the current one). */
 const DTO_SELECT = `select ${DOC_COLUMNS},
@@ -157,6 +173,7 @@ const toDto = (r: DtoRow): DocumentDto => {
     state: documentState(record),
     uploadedAt: r.uploaded_at?.toISOString() ?? null,
     submittedAt: r.submitted_at?.toISOString() ?? null,
+    aiRejected: r.ai_rejected,
     review:
       r.decision && r.reviewed_at
         ? {
@@ -247,7 +264,7 @@ function build(q: Queryable, run: DocumentRepository['transaction']): DocumentRe
       await q.query(
         `update public.documents
             set storage_key = $2, file_name = $3, mime_type = $4, size_bytes = $5, uploaded_by = $6,
-                uploaded_at = null, submitted_at = null, status = 'PENDING'
+                uploaded_at = null, submitted_at = null, ai_rejected = false, ai_accepted = false, status = 'PENDING'
           where id = $1 and status = 'PENDING' and submitted_at is null`,
         [documentId, i.storageKey, i.fileName, i.mimeType, i.sizeBytes, i.uploadedBy],
       );
@@ -300,14 +317,44 @@ function build(q: Queryable, run: DocumentRepository['transaction']): DocumentRe
       await q.query('update public.documents set uploaded_at = now() where id = $1', [documentId]);
     },
 
-    async markSubmitted(documentId) {
-      await q.query('update public.documents set submitted_at = now() where id = $1', [documentId]);
+    async markSubmitted(documentId, aiRejected) {
+      await q.query(
+        'update public.documents set submitted_at = now(), ai_rejected = $2 where id = $1',
+        [documentId, aiRejected],
+      );
+    },
+
+    async listLatestForApproval(registrationId) {
+      const { rows } = await q.query<{
+        id: string;
+        document_type: DocumentType;
+        status: 'PENDING' | 'APPROVED' | 'REJECTED';
+        uploaded: boolean;
+        submitted: boolean;
+        ai_accepted: boolean;
+        ai_rejected: boolean;
+      }>(
+        `select distinct on (document_type) id, document_type, status, uploaded_at is not null as uploaded,
+                submitted_at is not null as submitted, ai_accepted, ai_rejected
+           from public.documents where registration_id = $1
+          order by document_type, created_at desc, id`,
+        [registrationId],
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        documentType: r.document_type,
+        status: r.status,
+        uploaded: r.uploaded,
+        submitted: r.submitted,
+        aiAccepted: r.ai_accepted,
+        aiRejected: r.ai_rejected,
+      }));
     },
 
     async insertReview(i) {
       await q.query(
-        `insert into public.document_reviews (document_id, reviewer_id, decision, reason_code, reason, notes)
-         values ($1, $2, $3, $4, $5, $6)`,
+        `insert into public.document_reviews (document_id, reviewer_id, decision, reason_code, reason, notes, automated)
+         values ($1, $2::uuid, $3, $4, $5, $6, $2::uuid is null)`,
         [i.documentId, i.reviewerId, i.decision, i.reasonCode, i.reason, i.notes],
       );
     },

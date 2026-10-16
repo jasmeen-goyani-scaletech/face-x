@@ -9,6 +9,7 @@ import {
   type StaffRole,
 } from '../staff';
 import type { RegistrantType, RegistrationStatus } from './transitions';
+import type { AgeDivision } from '../players/types';
 import type { RegistrationDto, RegistrationSummary, StatusHistoryEntry } from './types';
 
 export interface EventRow {
@@ -51,6 +52,15 @@ export interface RegistrationRepository {
   /** Share-locks the event so it cannot be changed under a registration being created or submitted. */
   lockEvent(eventId: string): Promise<EventRow | null>;
   findTeam(teamId: string): Promise<TeamRow | null>;
+  /**
+   * How full a team is for one kind of registrant. With `lock` the team row is locked first, so concurrent submissions to the
+   * same team take turns and each one counts the places the previous ones took. `max` null = unlimited.
+   */
+  teamCapacity(
+    teamId: string,
+    registrantType: RegistrantType,
+    lock: boolean,
+  ): Promise<{ teamName: string; max: number | null; used: number } | null>;
   isPlayerOwner(playerId: string, userId: string): Promise<boolean>;
   /** The caller's own staff profile (its type decides COACH or STAFF), or null if it is not theirs. */
   findOwnedStaffProfile(
@@ -140,6 +150,7 @@ interface ViewRow {
   player_email: string | null;
   player_phone: string | null;
   player_school_id: string | null;
+  player_age_division: AgeDivision | null;
   staff_id: string | null;
   staff_first_name: string | null;
   staff_last_name: string | null;
@@ -187,6 +198,24 @@ function build(q: Queryable, run: RegistrationRepository['transaction']): Regist
       );
       const t = rows[0];
       return t ? { id: t.id, eventId: t.event_id, status: t.status } : null;
+    },
+
+    async teamCapacity(teamId, registrantType, lock) {
+      // Two statements on purpose: the count must be taken after the lock is held, not before waiting for it.
+      const { rows } = await q.query<{ name: string; max: number | null }>(
+        `select name, case $2 when 'PLAYER' then max_players when 'COACH' then max_coaches else max_staff end as max
+           from public.teams where id = $1 ${lock ? 'for update' : ''}`,
+        [teamId, registrantType],
+      );
+      const team = rows[0];
+      if (!team) return null;
+      if (team.max === null) return { teamName: team.name, max: null, used: 0 };
+      const { rows: counted } = await q.query<{ n: string }>(
+        `select count(*) as n from public.registrations
+          where team_id = $1 and registrant_type = $2 and status not in ('DRAFT', 'CANCELLED', 'REJECTED')`,
+        [teamId, registrantType],
+      );
+      return { teamName: team.name, max: team.max, used: Number(counted[0]?.n ?? 0) };
     },
 
     async isPlayerOwner(playerId, userId) {
@@ -316,7 +345,7 @@ function build(q: Queryable, run: RegistrationRepository['transaction']): Regist
                 t.id as team_id, t.name as team_name, t.club as team_club, t.division as team_division,
                 pl.id as player_id, pl.first_name as player_first_name, pl.last_name as player_last_name,
                 pl.date_of_birth::text as player_dob, pl.email as player_email, pl.phone as player_phone,
-                pl.school_id as player_school_id,
+                pl.school_id as player_school_id, pl.age_division as player_age_division,
                 sp.id as staff_id, sp.first_name as staff_first_name, sp.last_name as staff_last_name,
                 sp.email as staff_email, sp.phone as staff_phone, sp.staff_role as staff_role
            from public.registrations r
@@ -363,6 +392,7 @@ function build(q: Queryable, run: RegistrationRepository['transaction']): Regist
                 email: v.player_email,
                 phone: v.player_phone,
                 schoolId: v.player_school_id,
+                ageDivision: v.player_age_division,
               },
               guardians: await listGuardians(q, v.player_id!),
             }

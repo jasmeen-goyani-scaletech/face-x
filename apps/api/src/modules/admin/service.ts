@@ -6,6 +6,7 @@ import type { AdminRepository } from './repository';
 import type {
   CreateEventBody,
   CreateTeamBody,
+  AssignTeamBody,
   EventAccessBody,
   ListRegistrationsQuery,
   ListTeamsQuery,
@@ -24,6 +25,7 @@ import type {
   Page,
   RejectedRegistration,
   ReviewQueueItem,
+  TeamAssignment,
 } from './types';
 
 /**
@@ -101,15 +103,50 @@ export interface AdminService {
     body: RejectRegistrationBody,
     meta: RequestMeta,
   ): Promise<RejectedRegistration>;
+  /**
+   * The teams of a coach or staff member (named by their registration). A person can hold several. Only an admin of the
+   * registration's organization may read or change them; a team must belong to the registration's own event.
+   */
+  listTeamAssignments(ctx: AuthContext, registrationId: string): Promise<TeamAssignment[]>;
+  addTeamAssignment(
+    ctx: AuthContext,
+    registrationId: string,
+    body: AssignTeamBody,
+    meta: RequestMeta,
+  ): Promise<TeamAssignment[]>;
+  removeTeamAssignment(
+    ctx: AuthContext,
+    registrationId: string,
+    teamId: string,
+    meta: RequestMeta,
+  ): Promise<TeamAssignment[]>;
+  /**
+   * A one-time sign-in link for a coach or staff member (named by their registration), for people who have no password and
+   * lost their session. Valid for 24 hours and until used; a newer link replaces an older one. Only an admin of the
+   * registration's organization may issue it. The token is shown once and never stored in the clear.
+   */
+  createSignInLink(
+    ctx: AuthContext,
+    registrationId: string,
+    meta: RequestMeta,
+  ): Promise<{ token: string; expiresAt: string }>;
 }
 
 const teamNotFound = () => AppError.notFound('TEAM_NOT_FOUND', 'Team not found');
+const personnelNotFound = () =>
+  AppError.notFound('REGISTRATION_NOT_FOUND', 'Registration not found');
 const administers = (ctx: AuthContext, organizationId: string) =>
   ctx.roles.includes('ADMIN') &&
   ctx.organizationId !== null &&
   ctx.organizationId === organizationId;
 
-export function createAdminService(repository: AdminRepository): AdminService {
+export function createAdminService(
+  repository: AdminRepository,
+  issueSignInLink: (
+    userId: string,
+    createdBy: string,
+  ) => Promise<{ token: string; expiresAt: Date }>,
+): AdminService {
   return {
     listEvents: (ctx) =>
       ctx.organizationId ? repository.listEvents(ctx.organizationId) : Promise.resolve([]),
@@ -242,6 +279,69 @@ export function createAdminService(repository: AdminRepository): AdminService {
           meta,
         });
         return team;
+      });
+    },
+
+    async listTeamAssignments(ctx, registrationId) {
+      const reg = await repository.findPersonnelRegistration(registrationId);
+      if (!reg || !administers(ctx, reg.organizationId)) throw personnelNotFound();
+      return repository.listAssignments(reg.staffProfileId);
+    },
+
+    async addTeamAssignment(ctx, registrationId, body, meta) {
+      return repository.transaction(async (r) => {
+        const reg = await r.findPersonnelRegistration(registrationId, true);
+        if (!reg || !administers(ctx, reg.organizationId)) throw personnelNotFound();
+        const found = await r.findTeam(body.teamId);
+        // A team of another event (or organization) is "not found", same as an unknown id.
+        if (!found || found.team.eventId !== reg.eventId) throw teamNotFound();
+        const added = await r.addAssignment(reg.staffProfileId, body.teamId, ctx.userId);
+        if (added) {
+          await r.audit({
+            action: 'TEAM_ASSIGNMENT_ADDED',
+            entityType: 'registration',
+            actorUserId: ctx.userId,
+            entityId: registrationId,
+            metadata: { teamId: body.teamId },
+            meta,
+          });
+        }
+        return r.listAssignments(reg.staffProfileId);
+      });
+    },
+
+    async createSignInLink(ctx, registrationId, meta) {
+      const reg = await repository.findPersonnelRegistration(registrationId);
+      if (!reg || !administers(ctx, reg.organizationId)) throw personnelNotFound();
+      const userId = await repository.findStaffUserId(reg.staffProfileId);
+      if (!userId) throw personnelNotFound();
+      const { token, expiresAt } = await issueSignInLink(userId, ctx.userId);
+      await repository.audit({
+        action: 'SIGN_IN_LINK_ISSUED',
+        entityType: 'registration',
+        actorUserId: ctx.userId,
+        entityId: registrationId,
+        meta,
+      });
+      return { token, expiresAt: expiresAt.toISOString() };
+    },
+
+    async removeTeamAssignment(ctx, registrationId, teamId, meta) {
+      return repository.transaction(async (r) => {
+        const reg = await r.findPersonnelRegistration(registrationId, true);
+        if (!reg || !administers(ctx, reg.organizationId)) throw personnelNotFound();
+        const removed = await r.removeAssignment(reg.staffProfileId, teamId);
+        if (removed) {
+          await r.audit({
+            action: 'TEAM_ASSIGNMENT_REMOVED',
+            entityType: 'registration',
+            actorUserId: ctx.userId,
+            entityId: registrationId,
+            metadata: { teamId },
+            meta,
+          });
+        }
+        return r.listAssignments(reg.staffProfileId);
       });
     },
 

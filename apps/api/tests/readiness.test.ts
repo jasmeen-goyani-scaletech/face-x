@@ -91,6 +91,7 @@ async function family(options: { event?: string; adult?: boolean } = {}): Promis
       firstName: 'Ann',
       lastName: 'Adult',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     playerId = p.body.data.id;
@@ -454,6 +455,7 @@ describe('what blocks readiness', () => {
       firstName: 'Dre',
       lastName: 'Draft',
       dateOfBirth: '1999-01-01',
+      ageDivision: 'U16',
       forSelf: true,
     });
     const reg = await as(app, draftUser.id).post(R, {

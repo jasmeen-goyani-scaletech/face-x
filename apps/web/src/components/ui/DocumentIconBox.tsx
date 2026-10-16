@@ -28,7 +28,7 @@ export default function DocumentIconBox({ documentId, file }: { documentId: stri
       </span>
     );
   }
-  if (file.review === 'rejected') {
+  if (file.review === 'rejected' || file.priorRejection !== undefined) {
     return (
       <span aria-hidden="true" className={[BASE, 'border-danger bg-danger-soft text-danger'].join(' ')}>
         <Icon size={18} />

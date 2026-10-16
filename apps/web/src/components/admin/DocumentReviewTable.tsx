@@ -17,7 +17,8 @@ export default function DocumentReviewTable({ files, children }: { files: Upload
     `${files.filter((f) => f.uploaded).length} of ${files.length} uploaded`,
     count('PENDING_REVIEW') && `${count('PENDING_REVIEW')} pending review`,
     count('APPROVED') && `${count('APPROVED')} approved`,
-    count('REJECTED') && `${count('REJECTED')} rejected`
+    count('REJECTED') && `${count('REJECTED')} rejected`,
+    files.filter((f) => f.aiRejected).length && `${files.filter((f) => f.aiRejected).length} AI rejected`
   ].filter(Boolean);
 
   return (

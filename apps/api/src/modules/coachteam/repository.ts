@@ -116,7 +116,15 @@ function build(q: Queryable, run: CoachTeamRepository['transaction']): CoachTeam
          returning id`,
         [i.eventId, i.name, i.club, i.division, i.coachProfileId],
       );
-      return rows[0]?.id ?? null;
+      const id = rows[0]?.id ?? null;
+      // The coach who creates a team holds it, so the team-scoped access (team_assignments) covers it from the start.
+      if (id) {
+        await q.query(
+          'insert into public.team_assignments (staff_profile_id, team_id) values ($1, $2) on conflict do nothing',
+          [i.coachProfileId, id],
+        );
+      }
+      return id;
     },
 
     async assignTeam(registrationId, teamId) {

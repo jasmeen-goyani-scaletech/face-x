@@ -62,6 +62,30 @@ function teamProblem(team: TeamRow | null, event: EventRow): ErrorDetail | null 
   return null;
 }
 
+const KIND_LABEL: Record<RegistrantType, string> = {
+  PLAYER: 'players',
+  COACH: 'coaches',
+  STAFF: 'staff members',
+};
+
+/**
+ * 409 TEAM_REGISTRATION_FULL when the team's limit for this kind of registrant is reached. A registration holds a place from
+ * submission on (every status except draft, cancelled and rejected), so lowering a limit never touches anyone already
+ * registered; it only stops new submissions until the count drops below it. `lock` must be true where the decision is final.
+ */
+async function assertTeamHasRoom(
+  r: RegistrationRepository,
+  teamId: string,
+  type: RegistrantType,
+  lock: boolean,
+): Promise<void> {
+  const cap = await r.teamCapacity(teamId, type, lock);
+  if (cap && cap.max !== null && cap.used >= cap.max) {
+    const message = `Registration for ${cap.teamName} is full: it cannot accept any more ${KIND_LABEL[type]}.`;
+    throw new AppError(409, 'TEAM_REGISTRATION_FULL', message, [{ path: 'teamId', message }]);
+  }
+}
+
 export function createRegistrationService(repository: RegistrationRepository): RegistrationService {
   async function view(ctx: AuthContext, registrationId: string): Promise<RegistrationDto> {
     const found = await repository.findView(registrationId, ctx.userId);
@@ -107,6 +131,9 @@ export function createRegistrationService(repository: RegistrationRepository): R
             ]);
           }
         }
+
+        // Early, friendly refusal; the binding check (under a team lock) happens at submit.
+        if (body.teamId) await assertTeamHasRoom(r, body.teamId, registrantType, false);
 
         // ON CONFLICT DO NOTHING on (event, person): of any number of concurrent requests exactly one inserts.
         // Coaches and staff do not pay, so their fee is fixed at zero whatever the event charges players.
@@ -176,6 +203,10 @@ export function createRegistrationService(repository: RegistrationRepository): R
             ]);
           }
         }
+        // Re-saving the team the draft already has is not a new claim on a place.
+        if (body.teamId && body.teamId !== reg.teamId) {
+          await assertTeamHasRoom(r, body.teamId, reg.registrantType, false);
+        }
         await r.updateDraft(registrationId, { teamId: body.teamId, guestCount: body.guestCount });
       });
       return view(ctx, registrationId);
@@ -222,6 +253,9 @@ export function createRegistrationService(repository: RegistrationRepository): R
         if (issues.length > 0) {
           throw new AppError(422, 'REGISTRATION_INCOMPLETE', 'Registration is incomplete', issues);
         }
+
+        // The binding limit check: it locks the team row, so concurrent submissions cannot all squeeze into the last place.
+        if (reg.teamId) await assertTeamHasRoom(r, reg.teamId, reg.registrantType, true);
 
         // The fee is fixed at submission: what the family saw is what payment will ask for.
         await r.markSubmitted(reg.id, {

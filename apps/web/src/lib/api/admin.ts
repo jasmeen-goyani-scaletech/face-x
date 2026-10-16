@@ -10,6 +10,8 @@ import type {
   ApiPage,
   ApiRegistrationStatus,
   ApiRosterEntry,
+  ApiSignInLink,
+  ApiTeamAssignment,
   CreateEventInput,
   CreateTeamInput,
   ListAdminRegistrationsQuery,
@@ -76,6 +78,8 @@ export function listAdminRegistrations(eventId: string, q: ListAdminRegistration
       teamId: q.teamId,
       search: q.search?.trim() || undefined,
       documentsPending: q.documentsPending ? 'true' : undefined,
+      aiRejected: q.aiRejected ? 'true' : undefined,
+      eventAccessDisabled: q.eventAccessDisabled ? 'true' : undefined,
       page: q.page === undefined ? undefined : String(q.page),
       pageSize: q.pageSize === undefined ? undefined : String(q.pageSize)
     }
@@ -117,3 +121,17 @@ export const rejectRegistration = (registrationId: string, reason: string) =>
     `/admin/registrations/${registrationId}/reject`,
     { method: 'POST', body: { reason } }
   );
+
+/** The teams of a coach or staff member (named by their registration id). Admin only. */
+export const listTeamAssignments = (registrationId: string) =>
+  apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams`);
+
+export const addTeamAssignment = (registrationId: string, teamId: string) =>
+  apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams`, { method: 'POST', body: { teamId } });
+
+export const removeTeamAssignment = (registrationId: string, teamId: string) =>
+  apiRequest<ApiTeamAssignment[]>(`/admin/registrations/${registrationId}/teams/${teamId}`, { method: 'DELETE' });
+
+/** A one-time sign-in link for a coach or staff member (named by their registration) who has no password and lost their session. */
+export const createSignInLink = (registrationId: string) =>
+  apiRequest<ApiSignInLink>(`/admin/registrations/${registrationId}/sign-in-link`, { method: 'POST' });

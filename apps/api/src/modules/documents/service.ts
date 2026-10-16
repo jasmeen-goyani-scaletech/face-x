@@ -9,11 +9,13 @@ import type { NotificationPublisher } from '../notifications';
 import type { ReadinessTrigger } from '../readiness/types';
 import { completenessOf } from './completeness';
 import type { DocumentRecord, DocumentRepository } from './repository';
-import type { RequestUploadBody, ReviewBody } from './schema';
+import type { RequestUploadBody, ReviewBody, SubmitBody } from './schema';
 import {
   ALLOWED_DOCUMENT_TYPES,
+  REQUIRED_DOCUMENT_TYPES,
   type DocumentDto,
   type DocumentListDto,
+  type DocumentRegistrantType,
   type DocumentType,
   type FaceEnrollmentResult,
   type UploadInstructions,
@@ -38,7 +40,12 @@ export interface DocumentService {
     meta: RequestMeta,
   ): Promise<{ document: DocumentDto; upload: UploadInstructions }>;
   complete(ctx: AuthContext, documentId: string, meta: RequestMeta): Promise<DocumentDto>;
-  submit(ctx: AuthContext, documentId: string, meta: RequestMeta): Promise<DocumentDto>;
+  submit(
+    ctx: AuthContext,
+    documentId: string,
+    body: SubmitBody,
+    meta: RequestMeta,
+  ): Promise<DocumentDto>;
   review(
     ctx: AuthContext,
     documentId: string,
@@ -161,6 +168,60 @@ export function createDocumentService({
       isAdminOf(ctx, access.eventOrganizationId) && access.document.submittedAt !== null;
     if (!ownerView && !adminView) throw docNotFound();
     return access;
+  }
+
+  /**
+   * AI approval. When every required document the AI can read (all but the profile photo, which only a person approves) has been
+   * submitted AND the API itself recorded an accepted AI check of that very file, and none was passed on after a second rejection,
+   * they are approved together without an admin; readiness then carries the registration forward. If even one is missing, unchecked
+   * or rejected, nothing is approved and the documents wait for an admin as usual. Runs after the submission has committed and
+   * never fails it.
+   */
+  async function autoApprove(
+    ctx: AuthContext,
+    registrationId: string,
+    registrantType: DocumentRegistrantType,
+    meta: RequestMeta,
+  ) {
+    try {
+      await repository.transaction(async (r) => {
+        const status = await r.lockRegistrationStatus(registrationId);
+        if (!status || FROZEN_REGISTRATION_STATUSES.includes(status)) return;
+        const latest = await r.listLatestForApproval(registrationId);
+        const needed = REQUIRED_DOCUMENT_TYPES[registrantType].filter((t) => t !== 'PROFILE_PHOTO');
+        const checked = needed.map((t) => latest.find((d) => d.documentType === t));
+        const ready = checked.every(
+          (d) =>
+            d !== undefined &&
+            d.uploaded &&
+            d.submitted &&
+            !d.aiRejected &&
+            (d.status === 'APPROVED' || (d.status === 'PENDING' && d.aiAccepted)),
+        );
+        if (!ready) return;
+        for (const d of checked) {
+          if (!d || d.status !== 'PENDING') continue;
+          await r.insertReview({
+            documentId: d.id,
+            reviewerId: null,
+            decision: 'APPROVED',
+            reasonCode: null,
+            reason: null,
+            notes: 'Approved automatically: the AI check accepted this document',
+          });
+          await r.setReviewStatus(d.id, 'APPROVED');
+          await r.audit({
+            action: 'DOCUMENT_APPROVED',
+            actorUserId: ctx.userId,
+            entityId: d.id,
+            metadata: { registrationId, documentType: d.documentType, aiApproved: true },
+            meta,
+          });
+        }
+      });
+    } catch {
+      // The submission stands; an admin can still review the documents.
+    }
   }
 
   async function ownedDocument(ctx: AuthContext, documentId: string) {
@@ -362,7 +423,7 @@ export function createDocumentService({
       return uploaded;
     },
 
-    async submit(ctx, documentId, meta) {
+    async submit(ctx, documentId, body, meta) {
       const owned = await ownedDocument(ctx, documentId);
       await repository.transaction(async (r) => {
         const doc = await r.lockDocument(documentId);
@@ -387,15 +448,21 @@ export function createDocumentService({
             'This document has already been submitted',
           );
         }
-        await r.markSubmitted(documentId);
+        const aiRejected = body.aiRejected === true;
+        await r.markSubmitted(documentId, aiRejected);
         await r.audit({
           action: 'DOCUMENT_SUBMITTED',
           actorUserId: ctx.userId,
           entityId: documentId,
-          metadata: { registrationId: doc.registrationId, documentType: doc.documentType },
+          metadata: {
+            registrationId: doc.registrationId,
+            documentType: doc.documentType,
+            aiRejected,
+          },
           meta,
         });
       });
+      await autoApprove(ctx, owned.document.registrationId, owned.registrantType, meta);
       await readiness.afterChange(owned.document.registrationId);
       return dtoOrThrow(documentId);
     },
