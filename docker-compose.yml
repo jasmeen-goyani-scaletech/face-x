@@ -1,0 +1,106 @@
+# Face-X: PostgreSQL + migrations + API + web, all from one `docker compose up -d --build`.
+#
+#   1. cp apps/api/.env.example apps/api/.env   and fill in the secrets (JWT_SECRET, REFRESH_TOKEN_SECRET, storage, ...)
+#   2. optional: cp .env.example .env           to change database passwords, ports, image tag or web build settings
+#   3. docker compose up -d --build             -> web on http://localhost:3000, API on http://localhost:4000
+#
+# Start order: db (creates the database and its two users on first boot) -> migrate (applies pending migrations, then exits)
+# -> api (connects as the read/write-only app user) -> web (proxies /api/v1 to the api service).
+# DATABASE_URL in apps/api/.env is ignored here: compose points the API and the migrations at the db service.
+
+name: facex
+
+# NODE_ENV for the API image and containers comes from API_NODE_ENV (default production), not from apps/api/.env.
+# production refuses STORAGE_DRIVER=local and FACE_SCAN_MOCK, and requires RUST_FACE_SERVICE_TOKEN with rust-remote.
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+  args:
+    NODE_ENV: ${API_NODE_ENV:-production}
+
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # Used only by docker/postgres/10-create-database.sh, on the first start of an empty volume.
+      FACEX_DB_NAME: ${FACEX_DB_NAME:-facex}
+      FACEX_MIGRATOR_PASSWORD: ${FACEX_MIGRATOR_PASSWORD:-facex_migrator_dev}
+      FACEX_APP_PASSWORD: ${FACEX_APP_PASSWORD:-facex_app_dev}
+    volumes:
+      - db-data:/var/lib/postgresql
+      - ./apps/api/db/setup/create-database.sql:/facex/create-database.sql:ro
+      - ./docker/postgres/10-create-database.sh:/docker-entrypoint-initdb.d/10-create-database.sh:ro
+    ports:
+      # Bound to localhost only; never expose the database publicly.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${FACEX_DB_NAME:-facex}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: runs pending migrations as the migrator (owner) user on every `up`, then exits. Safe to re-run.
+  migrate:
+    image: facex-backend:${FACEX_TAG:-latest}
+    build: *api-build
+    env_file:
+      - path: apps/api/.env
+        required: false
+    environment:
+      NODE_ENV: ${API_NODE_ENV:-production}
+      DATABASE_URL: postgres://facex_migrator:${FACEX_MIGRATOR_PASSWORD:-facex_migrator_dev}@db:5432/${FACEX_DB_NAME:-facex}
+      DATABASE_SSL: "false"
+    command: ["node", "dist/infrastructure/database/cli.js", "migrate"]
+    healthcheck:
+      disable: true
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: facex-backend:${FACEX_TAG:-latest}
+    build: *api-build
+    restart: unless-stopped
+    env_file:
+      - path: apps/api/.env
+        required: false
+    environment:
+      NODE_ENV: ${API_NODE_ENV:-production}
+      PORT: "4000"
+      DATABASE_URL: postgres://facex_app:${FACEX_APP_PASSWORD:-facex_app_dev}@db:5432/${FACEX_DB_NAME:-facex}
+      DATABASE_SSL: "false"
+    volumes:
+      # Only used with STORAGE_DRIVER=local (development).
+      - api-storage:/app/apps/api/.local-storage
+    ports:
+      - "${API_PORT:-4000}:4000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: facex-frontend:${FACEX_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_ORIGIN: http://api:4000
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-false}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  db-data:
+  api-storage:

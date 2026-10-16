@@ -195,7 +195,7 @@ Browser ────────────────────────
 Stripe  ──────────── POST https://<api host>/api/v1/webhooks/stripe ───▶  API
 ```
 
-**API.** `apps/api/Dockerfile` builds an image (from the repository root: `docker build -f apps/api/Dockerfile -t facex-api .`); any host
+**API.** `apps/api/Dockerfile` builds the image (from the repository root: `docker build -f apps/api/Dockerfile -t facex-backend .`; `docker-compose.yml` runs it with PostgreSQL, and the same image runs the migrations); any host
 that runs a container, or `pnpm install && pnpm --filter @facex/api build` + `node apps/api/dist/server.js`, works. It must stay a single
 long-running instance (rate-limit counters are in memory). Run migrations before each release as the owner user:
 `DATABASE_URL=<owner url> node dist/infrastructure/database/cli.js migrate` (from `apps/api`). On a managed database that offers only
