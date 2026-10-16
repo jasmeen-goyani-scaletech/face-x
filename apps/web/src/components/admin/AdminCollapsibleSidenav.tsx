@@ -11,7 +11,6 @@ const NAV = [
   { href: '/admin/tournaments', label: 'Tournaments', icon: TrophyIcon },
   { href: '/admin/teams', label: 'Teams', icon: UsersIcon },
   { href: '/admin/players', label: 'Players', icon: UsersIcon },
-  { href: '/admin/roster', label: 'Roster', icon: UsersIcon },
   { href: '/admin/coaches', label: 'Coaches', icon: UsersIcon },
   { href: '/admin/staff', label: 'Staff Members', icon: ShieldIcon },
   { href: '/admin/event-day', label: 'Event Day', icon: CalendarIcon }

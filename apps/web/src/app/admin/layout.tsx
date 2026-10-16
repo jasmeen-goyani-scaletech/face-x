@@ -15,6 +15,14 @@ import { ToastProvider } from '@/components/ui/Toast';
 /** The admin chrome: side navigation and the content column that follows it. */
 function AdminShell({ children, personnelOnly = false }: { children: React.ReactNode; personnelOnly?: boolean }) {
   const { collapsed, toggle: toggleSidenav } = useAdminSidenav();
+  const pathname = usePathname();
+  const router = useRouter();
+  // The roster belongs to coaches and staff; an admin who types the address is sent back to the admin home.
+  const blocked = !personnelOnly && (pathname === '/admin/roster' || !!pathname?.startsWith('/admin/roster/'));
+  useEffect(() => {
+    if (blocked) router.replace('/admin/tournaments');
+  }, [blocked, router]);
+  if (blocked) return <div className="min-h-screen bg-surface" />;
   return (
     <ToastProvider>
       <div className="min-h-screen">

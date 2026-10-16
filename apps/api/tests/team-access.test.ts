@@ -161,7 +161,7 @@ describe('team-scoped access for coaches and staff', () => {
     expect((await coach.get(`/api/v1/team-access/teams/${teamA3}/roster`)).status).toBe(404);
   });
 
-  it('keeps staff out of a coach’s or staff member’s roster, and shows them to an admin', async () => {
+  it('shows coaches and staff the players only, and refuses the roster to admins', async () => {
     const c = await person('COACH', 'READY_FOR_EVENT');
     const s = await person('STAFF', 'READY_FOR_EVENT', { teamId: teamA1 });
     await playerOn(teamA1);
@@ -171,7 +171,21 @@ describe('team-scoped access for coaches and staff', () => {
 
     expect(types(await as(app, c.user.id).get(`/api/v1/team-access/teams/${teamA1}/roster`))).not.toContain('STAFF');
     expect(types(await as(app, s.user.id).get(`/api/v1/team-access/teams/${teamA1}/roster`))).not.toContain('STAFF');
-    expect(types(await as(app, adminA).get(`/api/v1/team-access/teams/${teamA1}/roster`))).toContain('STAFF');
+    expect(types(await as(app, s.user.id).get(`/api/v1/team-access/teams/${teamA1}/roster`))).toContain('PLAYER');
+    // Admins have no roster screen: the endpoint is closed to them, even for a team of their own organization.
+    expect((await as(app, adminA).get(`/api/v1/team-access/teams/${teamA1}/roster`)).status).toBe(403);
+  });
+
+  it('gives staff no way to reach a player’s documents', async () => {
+    const s = await person('STAFF', 'READY_FOR_EVENT', { teamId: teamA1 });
+    await playerOn(teamA1);
+    await as(app, adminA).post(`${A}/${s.regId}/teams`, { teamId: teamA1 });
+    const staff = as(app, s.user.id);
+    const roster = await staff.get(`/api/v1/team-access/teams/${teamA1}/roster`);
+    const id = roster.body.data[0].registrationId as string;
+    expect([403, 404]).toContain((await staff.get(`/api/v1/registrations/${id}/documents`)).status);
+    expect((await staff.get(`/api/v1/admin/events/${eventA}/review-queue`)).status).toBe(403);
+    expect((await staff.get(`/api/v1/admin/events/${eventA}/roster`)).status).toBe(403);
   });
 
   it('stops working the moment the admin removes the assignment', async () => {

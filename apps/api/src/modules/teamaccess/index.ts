@@ -20,6 +20,12 @@ export function createTeamAccessModule(db: Database, auth: AuthMiddleware): Rout
   const router = Router();
   router.get('/me/teams', ...guard, controller.listTeams);
   router.get('/team-access/teams/:teamId', ...guard, controller.getTeam);
-  router.get('/team-access/teams/:teamId/roster', ...guard, controller.roster);
+  // The roster is not an admin screen: only the coach or staff member assigned to the team (the service checks the assignment).
+  router.get(
+    '/team-access/teams/:teamId/roster',
+    auth.requireAuth,
+    auth.requireRole('COACH', 'STAFF'),
+    controller.roster,
+  );
   return router;
 }

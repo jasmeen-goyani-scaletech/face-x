@@ -18,7 +18,7 @@ export interface TeamAccessService {
   /** The teams the caller holds as a coach or staff member (an admin sees the organization's teams through the admin API). */
   listTeams(ctx: AuthContext): Promise<AccessibleTeam[]>;
   getTeam(ctx: AuthContext, teamId: string): Promise<AccessibleTeam>;
-  /** The players on the team (and its staff, for an admin only): names, contact, readiness. Never documents, payments or email addresses. */
+  /** The players on the team, for its assigned coach or staff member only (not admins): names, contact, readiness. Never documents, payments or email addresses. */
   roster(ctx: AuthContext, teamId: string): Promise<TeamMemberDto[]>;
 }
 
@@ -93,13 +93,18 @@ export function createTeamAccessService(
     },
 
     async roster(ctx, teamId) {
-      const { team, via } = await resolve(ctx, teamId);
+      const { team } = await resolve(ctx, teamId);
+      // The roster is for the coach or staff member assigned to the team. Being an admin of the organization is not enough.
+      const grants = await access.findGrants(
+        ctx.userId,
+        personnelRoles(ctx),
+        APPROVED_PERSONNEL_STATUSES,
+        teamId,
+      );
+      if (grants.length === 0) throw notFound();
       const everyone = await admin.roster(team.eventId, team.id);
       return everyone
-        .filter(
-          (m): m is typeof m & { registrantType: 'PLAYER' | 'STAFF' } =>
-            m.registrantType === 'PLAYER' || (m.registrantType === 'STAFF' && via === 'ADMIN'),
-        )
+        .filter((m): m is typeof m & { registrantType: 'PLAYER' } => m.registrantType === 'PLAYER')
         .map((m) => ({
           registrationId: m.registrationId,
           registrationNumber: m.registrationNumber,
