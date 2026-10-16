@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { logout as apiLogout } from '@/lib/api/auth';
+import PushNotificationsButton from '@/components/notifications/PushNotificationsButton';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, LogoutIcon, ShieldIcon, TrophyIcon, UsersIcon, XIcon } from '@/components/ui/Icons';
 
 const NAV = [
@@ -115,6 +116,12 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
         </nav>
 
         <div className="mt-4 flex flex-col gap-0.5 px-3">
+          {/* Coaches and staff are told when a document is reviewed; this is where they turn that on for this device. */}
+          {personnelOnly && (
+            <div className={collapsed ? "flex justify-center py-1" : "px-1 py-1"}>
+              <PushNotificationsButton iconOnly={collapsed} />
+            </div>
+          )}
           <button
             type="button"
             onClick={onToggle}
@@ -159,9 +166,12 @@ export default function AdminCollapsibleSidenav({ collapsed, onToggle, personnel
           <span className="flex h-7 w-7 items-center justify-center rounded-[7px] bg-primary text-sm font-bold text-primary-foreground">FX</span>
           <span className="font-display text-sm font-bold tracking-wide text-ink">Admin</span>
         </div>
-        <button type="button" onClick={signOut} className="flex items-center gap-1.5 px-2 py-2 text-[12.5px] font-semibold text-ink-soft">
-          <LogoutIcon size={14} /> Sign out
-        </button>
+        <div className="flex items-center">
+          {personnelOnly && <PushNotificationsButton iconOnly />}
+          <button type="button" onClick={signOut} className="flex items-center gap-1.5 px-2 py-2 text-[12.5px] font-semibold text-ink-soft">
+            <LogoutIcon size={14} /> Sign out
+          </button>
+        </div>
       </div>
 
       <div className={['fixed inset-0 z-40 md:hidden', drawerOpen ? '' : 'pointer-events-none'].join(' ')}>
