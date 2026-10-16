@@ -1,0 +1,17 @@
+# Keep the build context small and secret-free. Both Dockerfiles build from the repository root.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+**/.local-storage
+apps/web/public/mediapipe
+.git
+.claude
+docs
+*.drawio
+**/.dev-restart.log
+**/coverage
